@@ -1,37 +1,78 @@
-# chromium_third_party_depot_tools
+# depot_tools
 
-#### 介绍
-depot_tools是个工具包（depot是仓库的意思），里面包含gclient、gcl、gn和ninja等工具，这些根据都是使用python写的。其主要的功能是对git的增强，让代码管理和编译更加简单
-
-#### 软件架构
-软件架构说明
+Tools for working with Chromium development. It requires python 2.7 or 3.8 for python 3 support.
 
 
-#### 安装教程
+## Tools
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+The most important tools are:
 
-#### 使用说明
+- `fetch`: A `gclient` wrapper to checkout a project. Use `fetch --help` for
+  more details.
+- `gclient`: A meta-checkout tool. Think
+  [repo](https://source.android.com/source/using-repo.html) or [git
+  submodules](https://git-scm.com/docs/git-submodule), except that it support
+  OS-specific rules, e.g. do not checkout Windows only dependencies when
+  checking out for Android. Use `gclient help` for more details and
+  [README.gclient.md](README.gclient.md).
+- `git cl`: A code review tool to interact with Rietveld or Gerrit. Use `git cl
+  help` for more details and [README.git-cl.md](README.git-cl.md).
+- `roll-dep`: A gclient dependency management tool to submit a _dep roll_,
+  updating a dependency to a newer revision.
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
-
-#### 参与贡献
-
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+There are a lot of git utilities included.
 
 
-#### 特技
+## Updating
 
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+`depot_tools` updates itself automatically when running `gclient` tool. To
+disable auto update, set the environment variable `DEPOT_TOOLS_UPDATE=0`.
+
+To update package manually, run `update_depot_tools.bat` on Windows,
+or `./update_depot_tools` on Linux or Mac.
+
+On Windows only, running `gclient` will install `git` and `python`.
+
+
+## Contributing
+
+To contribute change for review:
+
+    git new-branch <somename>
+    # Hack
+    git add .
+    git commit -a -m "Fixes goat teleporting"
+    # find reviewers
+    git cl owners
+    git log -- <yourfiles>
+
+    # Request a review.
+    git cl upload -r reviewer1@chromium.org,reviewer2@chromium.org --send-mail
+
+    # Edit change description if needed.
+    git cl desc
+
+    # If change is approved, flag it to be committed.
+    git cl set-commit
+
+    # If change needs more work.
+    git rebase-update
+    ...
+    git cl upload -t "Fixes goat teleporter destination to be Australia"
+
+See also [open bugs](https://bugs.chromium.org/p/chromium/issues/list?can=2&q=component%3AInfra%3ESDK),
+[open reviews](https://chromium-review.googlesource.com/q/status:open+project:chromium%252Ftools%252Fdepot_tools),
+[forum](https://groups.google.com/a/chromium.org/forum/#!forum/infra-dev) or
+[report problems](https://bugs.chromium.org/p/chromium/issues/entry?components=Infra%3ESDK).
+
+### cpplint.py
+
+Until 2018, our `cpplint.py` was a copy of the upstream version at
+https://github.com/google/styleguide/tree/gh-pages/cpplint. Unfortunately, that
+repository is not maintained any more.
+If you want to update `cpplint.py` in `depot_tools`, just upload a patch to do
+so. We will figure out a long-term strategy via issue https://crbug.com/916550.
+
+Note that the `cpplint.py` here is also used by the [Tricium
+analyzer](https://chromium.googlesource.com/infra/infra/+/HEAD/go/src/infra/tricium/functions/cpplint),
+so if the cpplint.py here changes, we should also update the copy used there.
