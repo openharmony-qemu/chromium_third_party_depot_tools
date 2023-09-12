@@ -1,6 +1,6 @@
 [
     {
-        "Name": "chromium_third_party_depot_tools",                   # 上游开源软件名全称
+        "Name": "depot_tools",                   # 上游开源软件名全称
         "License": "Khronos License",        # 上游开源软件中包含的许可证信息
         "License File": "LICENSE",    # 许可证所在文件路径
         "Version Number": "18a2844b5391577c12c9befffea3db69c95f8b91",
@@ -8,7 +8,7 @@
         "Description": "depot_tools是个工具包（depot是仓库的意思），里面包含gclient、gcl、gn和ninja等工具，这些根据都是使用python写的。其主要的功能是对git的增强，让代码管理和编译更加简单"           # 开源软件功能描述
     },
     {
-        "Name": "chromium_third_party_depot_tools",                   # 上游开源软件名全称
+        "Name": "depot_tools",                   # 上游开源软件名全称
         "License": "ADSL",       # 上游开源软件中包含的许可证信息
         "License File": "LICENSE",    # 许可证所在文件路径
         "Version Number": "18a2844b5391577c12c9befffea3db69c95f8b91",
@@ -16,7 +16,7 @@
         "Description": "depot_tools是个工具包（depot是仓库的意思），里面包含gclient、gcl、gn和ninja等工具，这些根据都是使用python写的。其主要的功能是对git的增强，让代码管理和编译更加简单"           # 开源软件功能描述
     },
     {
-        "Name": "chromium_third_party_depot_tools",                   # 上游开源软件名全称
+        "Name": "depot_tools",                   # 上游开源软件名全称
         "License": "LGPLStyleLicense",       # 上游开源软件中包含的许可证信息
         "License File": "LICENSE",    # 许可证所在文件路径
         "Version Number": "18a2844b5391577c12c9befffea3db69c95f8b91",
@@ -24,7 +24,7 @@
         "Description": "depot_tools是个工具包（depot是仓库的意思），里面包含gclient、gcl、gn和ninja等工具，这些根据都是使用python写的。其主要的功能是对git的增强，让代码管理和编译更加简单"           # 开源软件功能描述
     },
     {
-        "Name": "chromium_third_party_depot_tools",                   # 上游开源软件名全称
+        "Name": "depot_tools",                   # 上游开源软件名全称
         "License": "GPLStyleLicense",       # 上游开源软件中包含的许可证信息
         "License File": "LICENSE",    # 许可证所在文件路径
         "Version Number": "18a2844b5391577c12c9befffea3db69c95f8b91",
