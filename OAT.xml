@@ -3,48 +3,62 @@
     <oatconfig>
         <policylist>
             <policy name="projectPolicy" desc="">
-                <policyitem type="compatibility" name="ADSL" path=".*" desc="" />
-                <policyitem type="compatibility" name="GPLStyleLicense" path=".*" desc="" />
-                <policyitem type="compatibility" name="LGPLStyleLicense" path=".*" desc="" />
-                <policyitem type="compatibility" name="Unknown License" path=".*" desc="" />
+                <policyitem type="compatibility" name="ADSL" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/boto.*" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="GPLStyleLicense" path="third_party/coverage/htmlfiles.*" desc="经法务确认,涉及文件在render进程进行了隔离" />
+                <policyitem type="compatibility" name="LGPLStyleLicense" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/boto/mashups.*" desc="经法务确认,涉及文件在render进程进行了隔离" />
+                <policyitem type="compatibility" name="Unknown License" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/socksipy-branch/BUGS" desc="经法务确认为宽松型许可证" />
             </policy>
         </policylist>
         <filefilterlist>
             <filefilter name="defaultPolicyFilter"
                 desc="Filters for compatibility,license header policies">
-                <filteritem type="filepath" name="README.OpenSource"
-                    desc="" />
-                <filteritem type="filepath" name=".*py"
-                    desc="" />
-                <filteritem type="filepath" name="gsutil.vpython"
-                    desc="" />
-                <filteritem type="filepath" name=".*PKG-INFO"
-                    desc="" />
-                <filteritem type="filepath" name="third_party/colorama/README.chromium"
-                    desc="" />
-                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party.*"
-                    desc="" />
-                <filteritem type="filepath" name="third_party/colorama/README.rst"
-                    desc="" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party.*py" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="third_party/colorama.*py" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/bin/cfadmin" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="gsutil.vpython" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/crcmod/.hgeol" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/crcmod/changelog" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/CONTRIBUTING" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/pyasn1/doc/source/license.rst" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/httplib2/CHANGELOG" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/rsa.*" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/apitools/.gitignore.backup" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="third_party/colorama/README.rst" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/python-gflags/debian/control" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="third_party/colorama/README.chromium" desc="chrom原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/mock/README.rst" desc="chrom原生文件无license" />
             </filefilter>
+
             <filefilter name="defaultFilter">
-                <filteritem type="filepath" name="README.OpenSource"
-                    desc="" />
-                <filteritem type="filepath" name=".*cipd_client"
-                    desc="" />
-                <filteritem type="filepath" name=".*ninja-mac"
-                    desc="" />
-                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil.*"
-                    desc="" />
-                <filteritem type="filepath" name=".*ninja.exe"
-                    desc="" />
-                <filteritem type="filepath" name="ninja-.*"
-                    desc="" />
-                <filteritem type="filepath" name=".*png"
-                    desc="" />
+            </filefilter>
+
+            <filefilter name="readmeOpenSourcefileNamePolicFilter">
+                <filteritem type="filepath" name="" desc="Filter readme.opensource files" />
+            </filefilter>
+
+            <filefilter>
+                <filterit>
+                </filterit>
+            </filefilter>
+
+            <filefilter name="binaryFileTypePolicyFilter" desc="Check to see if it is a binary file">
+                <filteritem type="filepath" name=".cipd_client" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="ninja.*" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party.*pem" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="fileName" name=".*mp3" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name=".*png" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/oauth2client/tests/data.*enc" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil.*p12" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/oauth2client/docs/_static/favicon.ico" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/httplib2/ref/img1.old" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/gslib/tests/test_data/test.gif" desc="Chromium原生二进制文件,不会使用" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/crcmod_osx/crcmod/_crcfunext.so" desc="Chromium原生二进制文件,不会使用" />
             </filefilter>
         </filefilterlist>
         <licensematcherlist>
+
+
+
             <licensematcher name="Unknown License file reference" desc="">
                 <licensetext name="
                 SocksiPy version 1.00
@@ -67,6 +81,30 @@
                 Local Modifications:
                 Kept only the 'coverage' subdirectory, PKG-INFO, and AUTHORS.txt.
                 Removed tracer.c
+            " desc="" />
+            </licensematcher>
+            <licensematcher name="BSD-3-Clause" desc="">
+                <licensetext name="
+                Metadata-Version: 1.1
+                Name: pyasn1-modules
+                Version: 0.0.8
+                Summary: A collection of ASN.1-based protocols modules.
+                Home-page: http://sourceforge.net/projects/pyasn1/
+                Author: Ilya Etingof &lt;ilya@glas.net&gt;
+                Author-email: ilya@glas.net
+                License: BSD
+            " desc="" />
+            </licensematcher>
+            <licensematcher name="BSD-3-Clause" desc="">
+                <licensetext name="
+                Metadata-Version: 1.1
+                Name: coverage
+                Version: 3.7
+                Summary: Code coverage measurement for Python
+                Home-page: http://nedbatchelder.com/code/coverage
+                Author: Ned Batchelder and others
+                Author-email: ned@nedbatchelder.com
+                License: BSD
             " desc="" />
             </licensematcher>
         </licensematcherlist>
