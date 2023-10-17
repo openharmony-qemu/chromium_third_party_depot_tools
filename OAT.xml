@@ -62,9 +62,10 @@ used to filter file path.
         <policylist>
             <policy name="projectPolicy" desc="">
                 <policyitem type="compatibility" name="ADSL" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/boto.*" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="Unknown License file reference" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/socksipy-branch/BUGS" desc="经法务确认为宽松型许可证" />
+                
                 <policyitem type="compatibility" name="GPLStyleLicense" path="third_party/coverage/htmlfiles.*" desc="经法务确认,涉及文件在render进程进行了隔离" />
                 <policyitem type="compatibility" name="LGPLStyleLicense" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/boto/mashups.*" desc="经法务确认,涉及文件在render进程进行了隔离" />
-                <policyitem type="compatibility" name="Unknown License" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/socksipy-branch/BUGS" desc="经法务确认为宽松型许可证" />
             </policy>
         </policylist>
         <filefilterlist>
