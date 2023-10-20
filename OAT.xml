@@ -1,59 +1,123 @@
 <?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Copyright (c) 2021 Huawei Device Co., Ltd.
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+
+    This is the configuration file template for OpenHarmony OSS Audit Tool, please copy it to your
+project root dir and modify it refer to OpenHarmony/tools_oat/README.
+    All configurations in this file will be merged to OAT-Default.xml, if you have any questions or
+concerns, please create issue in OpenHarmony/tools_oat and @jalenchen or chenyaxun.
+
+    licensefile:
+    1.If the project don't have "LICENSE" in root dir, please define all the license files in this
+project in , OAT will check license files according to this rule.
+
+    policylist:
+    1. policy: If the OAT-Default.xml policies do not meet your requirements, please add policies here.
+    2. policyitem: The fields type, name, path, desc is required, and the fields rule, group,
+filefilter is optional,the default value is:
+    <policyitem type="" name="" path="" desc="" rule="may" group="defaultGroup"
+filefilter="defaultPolicyFilter"/>
+    3. policyitem type:
+        "compatibility" is used to check license compatibility in the specified path;
+        "license" is used to check source license header in the specified path;
+        "copyright" is used to check source copyright header in the specified path;
+        "import" is used to check source dependency in the specified path, such as import ... ,include ...
+        "filetype" is used to check file type in the specified path, supported file types: archive, binary
+        "filename" is used to check whether the specified file exists in the specified path(projectroot
+means the root dir of the project), supported file names: LICENSE, README, README.OpenSource
+    4. policyitem name: This field is used for define the license, copyright, "*" means match all, the
+"!" prefix means could not match this value. For example, "!GPL" means can not use GPL license.
+    5. policyitem path: This field is used for define the source file scope to apply this policyitem,
+the "!" prefix means exclude the files. For example, "!.*/lib/.*" means files in lib dir will be
+exclude while process this policyitem.
+    6. policyitem rule and group: These two fields are used together to merge policy results. "may"
+policyitems in the same group means any one in this group passed, the result will be passed.
+    7. policyitem filefilter: Used to bind filefilter which define filter rules.
+    7. policyitem desc: Used to describe the reason of this policy item, committers will check this
+while merging the code.
+    8. filefilter: Filter rules, the type filename is used to filter file name, the type filepath is
+used to filter file path.
+
+    Note:If the text contains special characters, please escape them according to the following rules:
+    " == &quot;
+    & == &amp;
+    ' == &apos;
+    < == &lt;
+    > == &gt;
+-->
 <configuration>
     <oatconfig>
         <policylist>
             <policy name="projectPolicy" desc="">
-                <policyitem type="compatibility" name="ADSL" path=".*" desc="" />
-                <policyitem type="compatibility" name="GPLStyleLicense" path=".*" desc="" />
-                <policyitem type="compatibility" name="LGPLStyleLicense" path=".*" desc="" />
-                <policyitem type="compatibility" name="Unknown License" path=".*" desc="" />
+                <policyitem type="compatibility" name="ADSL" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/boto.*" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="BSD-3-Clause" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/socksipy-branch/BUGS" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="BSD-3-Clause" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/pyasn1-modules/PKG-INFO" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="BSD-3-Clause" path="third_party/coverage/PKG-INFO" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="BSD-3-Clause" path="third_party/coverage/README.chromium" desc="经法务确认为宽松型许可证" />
+                <policyitem type="compatibility" name="GPLStyleLicense" path="third_party/coverage/htmlfiles.*" desc="经法务确认,涉及文件在render进程进行了隔离" />
+                <policyitem type="compatibility" name="LGPLStyleLicense" path="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/boto/mashups.*" desc="经法务确认,涉及文件在render进程进行了隔离" />
             </policy>
         </policylist>
         <filefilterlist>
             <filefilter name="defaultPolicyFilter"
                 desc="Filters for compatibility,license header policies">
-                <filteritem type="filepath" name="README.OpenSource"
-                    desc="" />
-                <filteritem type="filepath" name=".*py"
-                    desc="" />
-                <filteritem type="filepath" name="gsutil.vpython"
-                    desc="" />
-                <filteritem type="filepath" name=".*PKG-INFO"
-                    desc="" />
-                <filteritem type="filepath" name="third_party/colorama/README.chromium"
-                    desc="" />
-                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party.*"
-                    desc="" />
-                <filteritem type="filepath" name="third_party/colorama/README.rst"
-                    desc="" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party.*py" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="third_party/colorama.*py" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/bin/cfadmin" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="gsutil.vpython" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/crcmod/.hgeol" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/crcmod/changelog" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/boto/CONTRIBUTING" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/pyasn1/doc/source/license.rst" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/httplib2/CHANGELOG" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/rsa.*" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/apitools/.gitignore.backup" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="third_party/colorama/README.rst" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/python-gflags/debian/control" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="third_party/colorama/README.chromium" desc="chromium原生文件无license" />
+                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil/third_party/mock/README.rst" desc="chromium原生文件无license" />
             </filefilter>
+
             <filefilter name="defaultFilter">
-                <filteritem type="filepath" name="README.OpenSource"
-                    desc="" />
-                <filteritem type="filepath" name=".*cipd_client"
-                    desc="" />
-                <filteritem type="filepath" name=".*ninja-mac"
-                    desc="" />
-                <filteritem type="filepath" name="external_bin/gsutil/gsutil_4.28/gsutil.*"
-                    desc="" />
-                <filteritem type="filepath" name=".*ninja.exe"
-                    desc="" />
-                <filteritem type="filepath" name="ninja-.*"
-                    desc="" />
-                <filteritem type="filepath" name=".*png"
-                    desc="" />
+            </filefilter>
+            <filefilter name="binaryFileTypePolicyFilter" desc="Check to see if it is a binary file">
+                <filteritem type="filename" name=".*mp3" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*png" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*enc" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*pem" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*p12" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*old" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name="ninja-linux32" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name="ninja-linux64" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name="ninja-mac" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name="ninja-linux32" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*cipd_client" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*exe" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*gif" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*so" desc="chromium原生二进制文件,不会使用" />
+                <filteritem type="filename" name=".*ico" desc="chromium原生二进制文件,不会使用" />
             </filefilter>
         </filefilterlist>
         <licensematcherlist>
-            <licensematcher name="Unknown License file reference" desc="">
+            <licensematcher name="BSD-3-Clause" desc="">
                 <licensetext name="
                 SocksiPy version 1.00
                 A Python SOCKS module.
                 (C) 2006 Dan-Haim. All rights reserved.
                 See LICENSE file for details.
             " desc="" />
-            </licensematcher>
-            <licensematcher name="BSD-3-Clause" desc="">
                 <licensetext name="
                 URL: http://nedbatchelder.com/code/coverage/
                 Version: 3.7
@@ -67,6 +131,26 @@
                 Local Modifications:
                 Kept only the 'coverage' subdirectory, PKG-INFO, and AUTHORS.txt.
                 Removed tracer.c
+            " desc="" />
+              <licensetext name="
+                Metadata-Version: 1.1
+                Name: pyasn1-modules
+                Version: 0.0.8
+                Summary: A collection of ASN.1-based protocols modules.
+                Home-page: http://sourceforge.net/projects/pyasn1/
+                Author: Ilya Etingof &lt;ilya@glas.net&gt;
+                Author-email: ilya@glas.net
+                License: BSD
+            " desc="" />
+                <licensetext name="
+                Metadata-Version: 1.1
+                Name: coverage
+                Version: 3.7
+                Summary: Code coverage measurement for Python
+                Home-page: http://nedbatchelder.com/code/coverage
+                Author: Ned Batchelder and others
+                Author-email: ned@nedbatchelder.com
+                License: BSD
             " desc="" />
             </licensematcher>
         </licensematcherlist>
