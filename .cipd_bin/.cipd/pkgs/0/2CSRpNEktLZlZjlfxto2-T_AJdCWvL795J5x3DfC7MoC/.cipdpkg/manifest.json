@@ -1,0 +1,23 @@
+{
+  "format_version": "1.1",
+  "package_name": "infra/tools/luci/vpython/linux-amd64",
+  "version_file": ".versions/vpython.cipd_version",
+  "files": [
+    {
+      "name": "vpython",
+      "size": 16987898,
+      "executable": true,
+      "hash": "czgaToMuQYYglZrdDDx57UdEdsPmce_XJlFmVE7i2aAC"
+    },
+    {
+      "name": "vpython3",
+      "size": 0,
+      "symlink": "vpython"
+    },
+    {
+      "name": ".versions/vpython.cipd_version",
+      "size": 125,
+      "hash": "LfK507Fe6UiqpbkAlBvps78Te4y5OILW-vq75J7yjeoC"
+    }
+  ]
+}
