@@ -1,0 +1,20 @@
+{
+  "format_version": "1.1",
+  "package_name": "infra/tools/dirmd/linux-amd64",
+  "version_file": ".versions/dirmd.cipd_version",
+  "install_mode": "copy",
+  "actual_install_mode": "copy",
+  "files": [
+    {
+      "name": "dirmd",
+      "size": 24321001,
+      "executable": true,
+      "hash": "UKmWRBz5cDq3-o2YP8IPKf0_fWpqm97xqbhfhwJCVC4C"
+    },
+    {
+      "name": ".versions/dirmd.cipd_version",
+      "size": 118,
+      "hash": "CvnLsEXLord1ZAmoUmRWqsLVgO5UKZcELSCuR0f99eMC"
+    }
+  ]
+}
