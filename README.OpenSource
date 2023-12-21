@@ -1,0 +1,11 @@
+[
+    {
+        "Name": "depot_tools",
+        "License": "BSD-3-Clause",
+        "License File": "LICENSE",
+        "Version Number": "18a2844b5391577c12c9befffea3db69c95f8b91",
+        "Owner": "liujixin@huawei.com",
+        "Upstream URL": "https://chromium.googlesource.com/chromium/tools/depot_tools.git@18a2844b5391577c12c9befffea3db69c95f8b91",
+        "Description": "depot_tools是个工具包（depot是仓库的意思），里面包含gclient、gcl、gn和ninja等工具，这些根据都是使用python写的。其主要的功能是对git的增强，让代码管理和编译更加简单"
+    }
+]
