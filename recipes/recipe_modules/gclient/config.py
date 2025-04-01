@@ -2,110 +2,91 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-try:
-  _STRING_TYPE = basestring
-except NameError:  # pragma: no cover
-  _STRING_TYPE = str
-
 from recipe_engine.config import config_item_context, ConfigGroup, BadConf
 from recipe_engine.config import ConfigList, Dict, Single, Static, Set, List
 
 from . import api as gclient_api
 
 
-def BaseConfig(USE_MIRROR=True, CACHE_DIR=None,
-               BUILDSPEC_VERSION=None, deps_file='.DEPS.git', **_kwargs):
+def BaseConfig(USE_MIRROR=True,
+               CACHE_DIR=None,
+               deps_file='.DEPS.git',
+               **_kwargs):
   cache_dir = str(CACHE_DIR) if CACHE_DIR else None
   return ConfigGroup(
-    solutions = ConfigList(
-      lambda: ConfigGroup(
-        name = Single(_STRING_TYPE),
-        url = Single((_STRING_TYPE, type(None)), empty_val=''),
-        deps_file = Single(_STRING_TYPE, empty_val=deps_file, required=False,
-                           hidden=False),
-        managed = Single(bool, empty_val=True, required=False, hidden=False),
-        custom_deps = Dict(value_type=(_STRING_TYPE, type(None))),
-        custom_vars = Dict(value_type=(_STRING_TYPE, bool)),
-        safesync_url = Single(_STRING_TYPE, required=False),
+      solutions=ConfigList(lambda: ConfigGroup(
+          name=Single(str),
+          url=Single((str, type(None)), empty_val=''),
+          deps_file=Single(
+              str, empty_val=deps_file, required=False, hidden=False),
+          managed=Single(bool, empty_val=True, required=False, hidden=False),
+          custom_deps=Dict(value_type=(str, type(None))),
+          custom_vars=Dict(value_type=(str, bool)),
+          safesync_url=Single(str, required=False),
+          revision=Single(
+              (str, gclient_api.RevisionResolver), required=False, hidden=True),
+      )),
+      deps_os=Dict(value_type=str),
+      hooks=List(str),
+      target_os=Set(str),
+      target_os_only=Single(bool, empty_val=False, required=False),
+      target_cpu=Set(str),
+      target_cpu_only=Single(bool, empty_val=False, required=False),
+      cache_dir=Static(cache_dir, hidden=False),
 
-        revision = Single(
-            (_STRING_TYPE, gclient_api.RevisionResolver),
-            required=False, hidden=True),
-      )
-    ),
-    deps_os = Dict(value_type=_STRING_TYPE),
-    hooks = List(_STRING_TYPE),
-    target_os = Set(_STRING_TYPE),
-    target_os_only = Single(bool, empty_val=False, required=False),
-    target_cpu = Set(_STRING_TYPE),
-    target_cpu_only = Single(bool, empty_val=False, required=False),
-    cache_dir = Static(cache_dir, hidden=False),
+      # Maps 'solution' -> build_property
+      # TODO(machenbach): Deprecate this in favor of the one below.
+      # http://crbug.com/713356
+      got_revision_mapping=Dict(hidden=True),
 
-    # If supplied, use this as the source root (instead of the first solution's
-    # checkout).
-    src_root = Single(_STRING_TYPE, required=False, hidden=True),
+      # Maps build_property -> 'solution'
+      got_revision_reverse_mapping=Dict(hidden=True),
 
-    # Maps 'solution' -> build_property
-    # TODO(machenbach): Deprecate this in favor of the one below.
-    # http://crbug.com/713356
-    got_revision_mapping = Dict(hidden=True),
+      # Addition revisions we want to pass in.  For now there's a duplication
+      # of code here of setting custom vars AND passing in --revision. We hope
+      # to remove custom vars later.
+      revisions=Dict(value_type=(str, gclient_api.RevisionResolver),
+                     hidden=True),
 
-    # Maps build_property -> 'solution'
-    got_revision_reverse_mapping = Dict(hidden=True),
+      # TODO(iannucci): HACK! The use of None here to indicate that we apply
+      #   this to the solution.revision field is really terrible. I mostly blame
+      #   gclient.
+      # Maps 'parent_build_property' -> 'custom_var_name'
+      # Maps 'parent_build_property' -> None
+      # If value is None, the property value will be applied to
+      # solutions[0].revision. Otherwise, it will be applied to
+      # solutions[0].custom_vars['custom_var_name']
+      parent_got_revision_mapping=Dict(hidden=True),
+      delete_unversioned_trees=Single(bool, empty_val=True, required=False),
 
-    # Addition revisions we want to pass in.  For now there's a duplication
-    # of code here of setting custom vars AND passing in --revision. We hope
-    # to remove custom vars later.
-    revisions = Dict(
-        value_type=(_STRING_TYPE, gclient_api.RevisionResolver),
-        hidden=True),
+      # Maps canonical repo URL to (local_path, revision).
+      #  - canonical gitiles repo URL is "https://<host>/<project>"
+      #    where project does not have "/a/" prefix or ".git" suffix.
+      #  - solution/path is then used to apply patches as patch root in
+      #    bot_update.
+      #  - if revision is given, it's passed verbatim to bot_update for
+      #    corresponding dependency. Otherwise (i.e. None), the patch will be
+      #    applied on top of version pinned in DEPS.
+      # This is essentially a allowlist of which repos inside a solution
+      # can be patched automatically by bot_update based on
+      # api.buildbucket.build.input.gerrit_changes[0].project
+      # For example, if bare chromium solution has this entry in repo_path_map
+      #     'https://chromium.googlesource.com/angle/angle': (
+      #       'src/third_party/angle', 'HEAD')
+      # then a patch to Angle project can be applied to a chromium src's
+      # checkout after first updating Angle's repo to its main's HEAD.
+      repo_path_map=Dict(value_type=tuple, hidden=True),
 
-    # TODO(iannucci): HACK! The use of None here to indicate that we apply this
-    #   to the solution.revision field is really terrible. I mostly blame
-    #   gclient.
-    # Maps 'parent_build_property' -> 'custom_var_name'
-    # Maps 'parent_build_property' -> None
-    # If value is None, the property value will be applied to
-    # solutions[0].revision. Otherwise, it will be applied to
-    # solutions[0].custom_vars['custom_var_name']
-    parent_got_revision_mapping = Dict(hidden=True),
-    delete_unversioned_trees = Single(bool, empty_val=True, required=False),
+      # Check out refs/branch-heads.
+      # TODO (machenbach): Only implemented for bot_update atm.
+      with_branch_heads=Single(bool,
+                               empty_val=False,
+                               required=False,
+                               hidden=True),
 
-    # Maps canonical repo URL to (local_path, revision).
-    #  - canonical gitiles repo URL is "https://<host>/<project>"
-    #    where project does not have "/a/" prefix or ".git" suffix.
-    #  - solution/path is then used to apply patches as patch root in
-    #    bot_update.
-    #  - if revision is given, it's passed verbatim to bot_update for
-    #    corresponding dependency. Otherwise (i.e. None), the patch will be
-    #    applied on top of version pinned in DEPS.
-    # This is essentially a allowlist of which repos inside a solution
-    # can be patched automatically by bot_update based on
-    # api.buildbucket.build.input.gerrit_changes[0].project
-    # For example, if bare chromium solution has this entry in repo_path_map
-    #     'https://chromium.googlesource.com/angle/angle': (
-    #       'src/third_party/angle', 'HEAD')
-    # then a patch to Angle project can be applied to a chromium src's
-    # checkout after first updating Angle's repo to its main's HEAD.
-    repo_path_map = Dict(value_type=tuple, hidden=True),
-
-    # Check out refs/branch-heads.
-    # TODO (machenbach): Only implemented for bot_update atm.
-    with_branch_heads = Single(
-        bool,
-        empty_val=False,
-        required=False,
-        hidden=True),
-
-    # Check out refs/tags.
-    with_tags = Single(
-        bool,
-        empty_val=False,
-        required=False,
-        hidden=True),
-
-    USE_MIRROR = Static(bool(USE_MIRROR)),
-    BUILDSPEC_VERSION= Static(BUILDSPEC_VERSION, hidden=True),
+      # Check out refs/tags.
+      with_tags=Single(bool, empty_val=False, required=False, hidden=True),
+      USE_MIRROR=Static(bool(USE_MIRROR)),
   )
 
 config_ctx = config_item_context(BaseConfig)
@@ -293,6 +274,7 @@ def infra_superproject(c):
   soln.name = '.'
   soln.url = 'https://chromium.googlesource.com/infra/infra_superproject.git'
   c.got_revision_mapping['infra'] = 'got_revision'
+  c.got_revision_mapping['.'] = 'got_revision_superproject'
   c.repo_path_map.update({
       'https://chromium.googlesource.com/infra/luci/gae':
       ('infra/go/src/go.chromium.org/gae', 'HEAD'),
@@ -301,7 +283,8 @@ def infra_superproject(c):
       'https://chromium.googlesource.com/infra/luci/luci-go':
       ('infra/go/src/go.chromium.org/luci', 'HEAD'),
       'https://chromium.googlesource.com/infra/luci/recipes-py':
-      ('infra/recipes-py', 'HEAD')
+      ('infra/recipes-py', 'HEAD'),
+      'https://chromium.googlesource.com/infra/infra': ('infra', None)
   })
 
 
@@ -312,6 +295,11 @@ def infra_internal_superproject(c):
   soln.custom_vars = {'checkout_internal': True}
   soln.url = 'https://chromium.googlesource.com/infra/infra_superproject.git'
   c.got_revision_mapping['infra_internal'] = 'got_revision'
+  c.got_revision_mapping['.'] = 'got_revision_superproject'
+  c.repo_path_map.update({
+      'https://chrome-internal.googlesource.com/infra/infra_internal':
+      ('infra_internal', None)
+  })
 
 
 @config_ctx()
@@ -484,7 +472,6 @@ def gerrit(c):
   s = c.solutions.add()
   s.name = 'gerrit'
   s.url = 'https://gerrit.googlesource.com/gerrit.git'
-  c.revisions['gerrit'] = 'refs/heads/master'
 
 @config_ctx(includes=['gerrit'])
 def gerrit_plugins_binary_size(c):
@@ -514,13 +501,6 @@ def gerrit_plugins_chromium_binary_size(c):
   s.url = ChromiumGitURL(c, 'infra', 'gerrit-plugins',
                          'chromium-binary-size.git')
   c.got_revision_mapping['gerrit_plugins_chromium_binary_size'] = 'got_revision'
-
-@config_ctx(includes=['gerrit'])
-def gerrit_plugins_chromium_style(c):
-  s = c.solutions.add()
-  s.name = 'gerrit_plugins_chromium_style'
-  s.url = ChromiumGitURL(c, 'infra', 'gerrit-plugins', 'chromium-style.git')
-  c.got_revision_mapping['gerrit_plugins_binary_size'] = 'got_revision'
 
 @config_ctx(includes=['gerrit'])
 def gerrit_plugins_chumpdetector(c):
@@ -563,3 +543,11 @@ def crossbench(c):
   soln.name = 'crossbench'
   soln.url = 'https://chromium.googlesource.com/crossbench'
   c.got_revision_mapping['crossbench'] = 'got_revision'
+
+
+@config_ctx()
+def ytdevinfra(c):
+  soln = c.solutions.add()
+  soln.name = 'ytdevinfra'
+  soln.url = 'https://lbshell-internal.googlesource.com/cobalt_src.git'
+  c.got_revision_mapping['ytdevinfra'] = 'got_revision'

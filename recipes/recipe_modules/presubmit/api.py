@@ -30,42 +30,13 @@ class PresubmitApi(recipe_api.RecipeApi):
 
     name = kwargs.pop('name', 'presubmit')
     with self.m.depot_tools.on_path():
-      # Use only vpython3 on bots that don't have vpython2 on the path any
-      # longer.
-      # TODO(https://crbug.com/1401307): Switch this to vpython3 premanently
-      # and remove py3 part below.
-      experiments = self.m.buildbucket.build.input.experiments
-      if 'luci.buildbucket.omit_python2' in experiments:
-        cmd = ['vpython3', self.presubmit_support_path, '--use-python3']
-      else:
-        cmd = ['vpython', self.presubmit_support_path]
-
+      cmd = ['vpython3', self.presubmit_support_path]
       cmd.extend(args)
       cmd.extend(['--json_output', self.m.json.output()])
       if self.m.resultdb.enabled:
         kwargs['wrapper'] = ('rdb', 'stream', '--')
       step_data = self.m.step(name, cmd, **kwargs)
       output = step_data.json.output or {}
-      if self.m.step.active_result.retcode != 0 or \
-          'luci.buildbucket.omit_python2' in experiments:
-        return output
-
-      presubmit_args = list(args) + [
-          '--json_output',
-          self.m.json.output(),
-      ]
-      step_data = self.m.step(name + " py3",
-                              ['vpython3', self.presubmit_support_path] +
-                              presubmit_args, **kwargs)
-      output2 = step_data.json.output or {}
-
-      # combine outputs
-      for key in output:
-        if key in output2:
-          output[key] += output2[key]
-          del (output2[key])
-      for key in output2:
-        output[key] = output2[key]
       return output
 
   @property
@@ -104,7 +75,7 @@ class PresubmitApi(recipe_api.RecipeApi):
         no_fetch_tags=True,
         root_solution_revision=root_solution_revision)
 
-    abs_root = self.m.context.cwd.join(self._relative_root)
+    abs_root = self.m.context.cwd / self._relative_root
     if self.m.tryserver.is_tryserver:
       with self.m.context(cwd=abs_root):
         # TODO(unowned): Consider either:
@@ -114,6 +85,8 @@ class PresubmitApi(recipe_api.RecipeApi):
                    'user.email=commit-bot@chromium.org',
                    '-c',
                    'user.name=The Commit Bot',
+                   '-c',
+                   'diff.ignoreSubmodules=all',
                    'commit',
                    '-a',
                    '-m',
@@ -122,7 +95,7 @@ class PresubmitApi(recipe_api.RecipeApi):
                    infra_step=False)
 
     if self._runhooks:
-      with self.m.context(cwd=self.m.path['checkout']):
+      with self.m.context(cwd=self.m.path.checkout_dir):
         self.m.gclient.runhooks()
 
     return bot_update_step
@@ -137,14 +110,13 @@ class PresubmitApi(recipe_api.RecipeApi):
     Returns:
       a RawResult object, suitable for being returned from RunSteps.
     """
-    abs_root = self.m.context.cwd.join(self._relative_root)
+    abs_root = self.m.context.cwd / self._relative_root
     got_revision_properties = self.m.bot_update.get_project_revision_properties(
         # Replace path.sep with '/', since most recipes are written assuming '/'
         # as the delimiter. This breaks on windows otherwise.
         self._relative_root.replace(self.m.path.sep, '/'),
         self.m.gclient.c)
-    upstream = bot_update_step.json.output['properties'].get(
-        got_revision_properties[0])
+    upstream = bot_update_step.properties.get(got_revision_properties[0])
 
     presubmit_args = []
     if self.m.tryserver.is_tryserver:
@@ -168,7 +140,7 @@ class PresubmitApi(recipe_api.RecipeApi):
         '--verbose'
         ])
 
-    if self.m.cq.active and self.m.cq.run_mode == self.m.cq.DRY_RUN:
+    if self.m.cv.active and self.m.cv.run_mode == self.m.cv.DRY_RUN:
       presubmit_args.append('--dry_run')
 
     additionalArgs = ['--root', abs_root,'--commit']
@@ -221,12 +193,10 @@ class PresubmitApi(recipe_api.RecipeApi):
     if raw_result.summary_markdown == '':
       raw_result.status = common_pb2.INFRA_FAILURE
       raw_result.summary_markdown = (
-        'Something unexpected occurred'
-        ' while running presubmit checks.'
-        ' Please [file a bug](https://bugs.chromium.org'
-        '/p/chromium/issues/entry?components='
-        'Infra%3EClient%3EChrome&status=Untriaged)'
-      )
+          'Something unexpected occurred'
+          ' while running presubmit checks.'
+          ' Please [file a bug](https://issues.chromium.org'
+          '/issues/new?component=1456211)')
     return raw_result
 
 
@@ -303,10 +273,8 @@ def _createSummaryMarkdown(step_json):
   warning_count = len(step_json['warnings'])
   notif_count = len(step_json['notifications'])
   description = (
-    '#### There are %d error(s), %d warning(s),'
-    ' and %d notifications(s). Here are the errors:') % (
-      len(errors), warning_count, notif_count
-  )
+      f'#### There are {len(errors)} error(s), {warning_count} warning(s), '
+      f'and {notif_count} notifications(s).')
   error_messages = []
 
   for error in errors:

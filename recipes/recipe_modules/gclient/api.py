@@ -4,12 +4,6 @@
 
 import re
 
-# TODO(crbug.com/1227140): Clean up when py2 is no longer supported.
-try:
-  _STRING_TYPE = basestring
-except NameError:  # pragma: no cover
-  _STRING_TYPE = str
-
 from recipe_engine import recipe_api
 
 class DepsDiffException(Exception):
@@ -68,7 +62,7 @@ def jsonish_to_python(spec, is_top=False):
       ret += '['
       ret += ', '.join(jsonish_to_python(x) for x in spec)
       ret += ']'
-    elif isinstance(spec, _STRING_TYPE):
+    elif isinstance(spec, str):
       ret = repr(str(spec))
     else:
       ret = repr(spec)
@@ -133,7 +127,7 @@ class GclientApi(recipe_api.RecipeApi):
   def get_config_defaults(self):
     return {
       'USE_MIRROR': self.use_mirror,
-      'CACHE_DIR': self.m.path['cache'].join('git'),
+      'CACHE_DIR': self.m.path.cache_dir / 'git',
     }
 
   @staticmethod
@@ -217,9 +211,11 @@ class GclientApi(recipe_api.RecipeApi):
         for propname, path in sorted(
             self.got_revision_reverse_mapping(cfg).items()):
           # gclient json paths always end with a slash
-          info = solutions.get(path + '/') or solutions.get(path)
-          if info:
-            result.presentation.properties[propname] = info['revision']
+          sol = solutions.get(path + '/') or solutions.get(path)
+          # solution can exist with `revision == null`. We only want to include
+          # properties that have set revision.
+          if sol and sol['revision']:
+            result.presentation.properties[propname] = sol['revision']
 
     return result
 
@@ -275,9 +271,9 @@ class GclientApi(recipe_api.RecipeApi):
         name = 'recurse (git config %s)' % var
         self(name, ['recurse', 'git', 'config', var, val], **kwargs)
     finally:
-      cwd = self.m.context.cwd or self.m.path['start_dir']
+      cwd = self.m.context.cwd or self.m.path.start_dir
       if 'checkout' not in self.m.path:
-        self.m.path['checkout'] = cwd.join(
+        self.m.path.checkout_dir = cwd.joinpath(
           *cfg.solutions[0].name.split(self.m.path.sep))
 
     return sync_step
@@ -285,14 +281,14 @@ class GclientApi(recipe_api.RecipeApi):
   def runhooks(self, args=None, name='runhooks', **kwargs):
     args = args or []
     assert isinstance(args, (list, tuple))
-    with self.m.context(cwd=(self.m.context.cwd or self.m.path['checkout'])):
+    with self.m.context(cwd=(self.m.context.cwd or self.m.path.checkout_dir)):
       return self(name, ['runhooks'] + list(args), infra_step=False, **kwargs)
 
   def break_locks(self):
     """Remove all index.lock files. If a previous run of git crashed, bot was
     reset, etc... we might end up with leftover index.lock files.
     """
-    cmd = ['python3', '-u', self.resource('cleanup.py'), self.m.path['start_dir']]
+    cmd = ['python3', '-u', self.resource('cleanup.py'), self.m.path.start_dir]
     return self.m.step('cleanup index.lock', cmd)
 
   def get_gerrit_patch_root(self, gclient_config=None):
@@ -424,3 +420,59 @@ class GclientApi(recipe_api.RecipeApi):
   @property
   def DepsDiffException(self):
     return DepsDiffException
+
+  def roll_deps(self,
+                deps_path,
+                dep_updates,
+                strip_prefix_for_gitlink=None,
+                test_data=None):
+    """Updates DEPS file to desired revisions, and returns all requried file
+    changes.
+
+    Args:
+      deps_path - Path to DEPS file that will be modified.
+      dep_updates - A map of dependencies to update (key = dependency name,
+                    value = revision).
+      strip_prefix_for_gitlink - Prefix that will be removed when adding
+                                 gitlinks. This is only useful for repositories
+                                 that use use_relative_path = True. That's
+                                 currently only chromium/src.
+
+    Returns:
+      A map of all files that need to be modified (key = file path, value = file
+      content) in addition to DEPS file itself.
+      Note: that git submodules (gitlinks) are treated as files and content is a
+      commit hash.
+      Note: we expect DEPS to be in the root of the project.
+    """
+    deps_content = self.m.file.read_text('Read DEPS file', deps_path, test_data)
+    update_gitlink = False
+    dep_updates_args = []
+    file_changes = {}
+
+    lines = deps_content.split('\n')
+    for line in lines:
+      if line.startswith('git_dependencies = '):
+        if 'DEPS' not in line:
+          # Need to update gitlinks
+          update_gitlink = True
+        break
+
+    for dep, rev in dep_updates.items():
+      dep_updates_args.extend(['-r', f'{dep}@{rev}'])
+      if update_gitlink:
+        # Add gitlink updates to file changes.
+        gitlink_path = dep
+        if strip_prefix_for_gitlink and \
+            gitlink_path.startswith(strip_prefix_for_gitlink):
+          # strip src/ from path
+          gitlink_path = gitlink_path[len(strip_prefix_for_gitlink):]
+
+        file_changes[gitlink_path] = rev.encode('UTF-8')
+    # Apply the updates to the local DEPS files.
+    self.m.gclient('setdep',
+                   ['setdep', '--deps-file', deps_path] + dep_updates_args)
+
+    updated_deps = self.m.file.read_raw('Read modified DEPS', deps_path)
+    file_changes['DEPS'] = updated_deps
+    return file_changes

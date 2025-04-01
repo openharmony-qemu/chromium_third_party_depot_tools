@@ -5,9 +5,6 @@
 
 # TODO(hinoka): Use logging.
 
-from __future__ import division
-from __future__ import print_function
-
 import codecs
 from contextlib import contextmanager
 import copy
@@ -28,18 +25,8 @@ import uuid
 
 import os.path as path
 
-# TODO(crbug.com/1227140): Clean up when py2 is no longer supported.
 from io import BytesIO
-try:
-  import urlparse
-except ImportError:  # pragma: no cover
-  import urllib.parse as urlparse
-
-# Cache the string-escape codec to ensure subprocess can find it later.
-# See crbug.com/912292#c2 for context.
-# TODO(crbug.com/1227140): Clean up when py2 is no longer supported.
-if sys.version_info.major == 2:
-  codecs.lookup('string-escape')
+from urllib.parse import urlparse
 
 # How many bytes at a time to read from pipes.
 BUF_SIZE = 256
@@ -158,7 +145,7 @@ class RepeatingTimer(threading.Thread):
 
 def _print_pstree():
   """Debugging function used to print "ps auxwwf" for stuck processes."""
-  if sys.platform.startswith('linux2'):
+  if sys.platform.startswith('linux'):
     # Add new line for cleaner output
     print()
     subprocess.call(['ps', 'auxwwf'])
@@ -168,13 +155,6 @@ def _kill_process(proc):
   print('Killing stale process...')
   proc.kill()
 
-
-# TODO(crbug.com/1227140): Clean up when py2 is no longer supported.
-def _stdout_write(buf):
-  try:
-    sys.stdout.buffer.write(buf)
-  except AttributeError:
-    sys.stdout.write(buf)
 
 
 def call(*args, **kwargs):  # pragma: no cover
@@ -235,10 +215,10 @@ def call(*args, **kwargs):  # pragma: no cover
       if hanging_cr:
         buf = buf[:-1]
       buf = buf.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
-      _stdout_write(buf)
+      sys.stdout.buffer.write(buf)
       out.write(buf)
     if hanging_cr:
-      _stdout_write(b'\n')
+      sys.stdout.buffer.write(b'\n')
       out.write(b'\n')
 
     code = proc.wait()
@@ -331,7 +311,7 @@ def modify_solutions(input_solutions):
   solutions = copy.deepcopy(input_solutions)
   for solution in solutions:
     original_url = solution['url']
-    parsed_url = urlparse.urlparse(original_url)
+    parsed_url = urlparse(original_url)
     parsed_path = parsed_url.path
 
     solution['managed'] = False
@@ -478,7 +458,7 @@ def normalize_git_url(url):
   * Do not contain /a/ in their path.
   """
   try:
-    p = urlparse.urlparse(url)
+    p = urlparse(url)
   except Exception:
     # Not a url, just return it back.
     return url
@@ -553,11 +533,9 @@ def get_total_disk_space():
   if sys.platform.startswith('win'):
     _, total, free = (ctypes.c_ulonglong(), ctypes.c_ulonglong(), \
                       ctypes.c_ulonglong())
-    if sys.version_info >= (3,) or isinstance(cwd, unicode):
-      fn = ctypes.windll.kernel32.GetDiskFreeSpaceExW
-    else:
-      fn = ctypes.windll.kernel32.GetDiskFreeSpaceExA
-    ret = fn(cwd, ctypes.byref(_), ctypes.byref(total), ctypes.byref(free))
+    ret = ctypes.windll.kernel32.GetDiskFreeSpaceExW(cwd, ctypes.byref(_),
+                                                     ctypes.byref(total),
+                                                     ctypes.byref(free))
     if ret == 0:
       # WinError() will fetch the last error code.
       raise ctypes.WinError()
@@ -568,6 +546,15 @@ def get_total_disk_space():
     free = st.f_bavail * st.f_frsize
     total = st.f_blocks * st.f_frsize
     return (total, free)
+
+
+def disk_usage():
+  total_disk_space, free_disk_space = get_total_disk_space()
+  total_disk_space_gb = int(total_disk_space / (1024 * 1024 * 1024))
+  used_disk_space_gb = int(
+      (total_disk_space - free_disk_space) / (1024 * 1024 * 1024))
+  percent_used = int(used_disk_space_gb * 100 / total_disk_space_gb)
+  return (used_disk_space_gb, total_disk_space_gb, percent_used)
 
 
 def ref_to_remote_ref(ref):
@@ -893,7 +880,7 @@ def parse_revisions(revisions, root):
       # This is an alt_root@revision argument.
       current_root, current_rev = split_revision
 
-      parsed_root = urlparse.urlparse(current_root)
+      parsed_root = urlparse(current_root)
       if parsed_root.scheme in ['http', 'https']:
         # We want to normalize git urls into .git urls.
         normalized_root = 'https://' + parsed_root.netloc + parsed_root.path
@@ -1020,14 +1007,7 @@ def prepare(options, git_slns, active):
   # Make sure we tell recipes that we didn't run if the script exits here.
   emit_json(options.output_json, did_run=active)
 
-  total_disk_space, free_disk_space = get_total_disk_space()
-  total_disk_space_gb = int(total_disk_space / (1024 * 1024 * 1024))
-  used_disk_space_gb = int((total_disk_space - free_disk_space)
-                           / (1024 * 1024 * 1024))
-  percent_used = int(used_disk_space_gb * 100 / total_disk_space_gb)
-  step_text = '[%dGB/%dGB used (%d%%)]' % (used_disk_space_gb,
-                                           total_disk_space_gb,
-                                           percent_used)
+  step_text = '[%dGB/%dGB used (%d%%)]' % disk_usage()
   # The first solution is where the primary DEPS file resides.
   first_sln = dir_names[0]
 
@@ -1043,6 +1023,22 @@ def checkout(options, git_slns, specs, revisions, step_text):
   print('Checking git version...')
   ver = git('version').strip()
   print('Using %s' % ver)
+
+  # Get the epoch of the git cache from a cache epoch marker file. If this file
+  # does not exist, create one with the current timestamp.
+  cache_epoch_marker_path = os.path.join(options.git_cache_dir, '.cache_epoch')
+  if os.path.isfile(cache_epoch_marker_path):
+    with open(cache_epoch_marker_path) as f:
+      cache_epoch = f.readline().strip()
+  else:
+    # This ensures the cache path exists. This is a noop if the path already
+    # exists. See crbug.com/1448769#c8.
+    os.makedirs(options.git_cache_dir, exist_ok=True)
+    with open(cache_epoch_marker_path, 'w') as f:
+      cache_epoch = int(time.time())
+      print(cache_epoch, file=f)
+
+  print('git_cache epoch: {}'.format(datetime.fromtimestamp(int(cache_epoch))))
 
   try:
     protocol = git('config', '--get', 'protocol.version')
@@ -1133,14 +1129,21 @@ def checkout(options, git_slns, specs, revisions, step_text):
     revision_mapping['got_revision'] = first_sln
 
   manifest = create_manifest()
-  got_revisions = parse_got_revision(manifest, revision_mapping)
+  properties = parse_got_revision(manifest, revision_mapping)
 
-  if not got_revisions:
+  if not properties:
     # TODO(hinoka): We should probably bail out here, but in the interest
     # of giving mis-configured bots some time to get fixed use a dummy
     # revision here.
-    got_revisions = { 'got_revision': 'BOT_UPDATE_NO_REV_FOUND' }
+    properties = {'got_revision': 'BOT_UPDATE_NO_REV_FOUND'}
     #raise Exception('No got_revision(s) found in gclient output')
+
+  # Add git cache age to the output.properties
+  properties['git_cache_epoch'] = cache_epoch
+
+  usage = disk_usage()
+  # TODO(ukai): remove cleanup_dir if available disk space is small?
+  step_text = step_text + (' -> [%dGB/%dGB used (%d%%)]' % usage)
 
   # Tell recipes information such as root, got_revision, etc.
   emit_json(options.output_json,
@@ -1149,7 +1152,7 @@ def checkout(options, git_slns, specs, revisions, step_text):
             patch_root=options.patch_root,
             step_text=step_text,
             fixed_revisions=revisions,
-            properties=got_revisions,
+            properties=properties,
             manifest=manifest)
 
 
