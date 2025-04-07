@@ -5,7 +5,7 @@
 from recipe_engine.post_process import (DropExpectation, StatusSuccess,
                                         StepCommandContains)
 
-PYTHON_VERSION_COMPATIBILITY = 'PY2+3'
+PYTHON_VERSION_COMPATIBILITY = 'PY3'
 
 DEPS = [
     'gerrit',
@@ -25,7 +25,7 @@ def GenTests(api):
       'basic',
       api.buildbucket.try_build(),
       api.post_process(StepCommandContains, 'print owner',
-                       ['echo', "OrderedDict([('name', 'John Doe')])"]),
+                       ['echo', "{'name': 'John Doe'}"]),
       api.post_process(StatusSuccess),
       api.post_process(DropExpectation),
   )

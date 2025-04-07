@@ -2,16 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from __future__ import division
-
 import itertools
 import re
-
-# TODO(crbug.com/1227140): Clean up when py2 is no longer supported.
-try:
-  _INTEGER_TYPES = (int, long)
-except NameError:  # pragma: no cover
-  _INTEGER_TYPES = (int,)
 
 from recipe_engine import recipe_api
 from recipe_engine import util as recipe_util
@@ -29,7 +21,7 @@ class GitApi(recipe_api.RecipeApi):
     options = kwargs.pop('git_config_options', {})
     for k, v in sorted(options.items()):
       git_cmd.extend(['-c', '%s=%s' % (k, v)])
-    with self.m.context(cwd=(self.m.context.cwd or self.m.path['checkout'])):
+    with self.m.context(cwd=(self.m.context.cwd or self.m.path.checkout_dir)):
       return self.m.step(name, git_cmd + list(args), infra_step=infra_step,
                           **kwargs)
 
@@ -61,8 +53,7 @@ class GitApi(recipe_api.RecipeApi):
     """
     if previous_result:
       assert isinstance(previous_result, dict)
-      assert all(
-          isinstance(v, _INTEGER_TYPES) for v in previous_result.values())
+      assert all(isinstance(v, int) for v in previous_result.values())
       assert 'size' in previous_result
       assert 'size-pack' in previous_result
 
@@ -113,14 +104,26 @@ class GitApi(recipe_api.RecipeApi):
         raise recipe_api.InfraFailure('count-objects failed: %s' % ex)
       return None
 
-  def checkout(self, url, ref=None, dir_path=None, recursive=False,
-               submodules=True, submodule_update_force=False,
-               keep_paths=None, step_suffix=None,
-               curl_trace_file=None, raise_on_failure=True,
-               set_got_revision=False, remote_name=None,
-               display_fetch_size=None, file_name=None,
+  def checkout(self,
+               url,
+               ref=None,
+               dir_path=None,
+               recursive=False,
+               submodules=True,
+               submodule_update_force=False,
+               keep_paths=None,
+               step_suffix=None,
+               curl_trace_file=None,
+               raise_on_failure=True,
+               set_got_revision=False,
+               remote_name=None,
+               display_fetch_size=None,
+               file_name=None,
                submodule_update_recursive=True,
-               use_git_cache=False, progress=True, tags=False):
+               use_git_cache=False,
+               progress=True,
+               tags=False,
+               depth=None):
     """Performs a full git checkout and returns sha1 of checked out revision.
 
     Args:
@@ -154,6 +157,8 @@ class GitApi(recipe_api.RecipeApi):
            * arbitrary refs such refs/whatever/not-fetched-by-default-to-cache
        progress (bool): whether to show progress for fetch or not
       * tags (bool): Also fetch tags.
+      * depth (int): if > 0, limit fetching to the given number of commits from
+        the tips of the remote tree.
 
     Returns: If the checkout was successful, this returns the commit hash of
       the checked-out-repo. Otherwise this returns None.
@@ -173,10 +178,10 @@ class GitApi(recipe_api.RecipeApi):
       # ex: ssh://host:repo/foobar/.git
       dir_path = dir_path or dir_path.rsplit('/', 1)[-1]
 
-      dir_path = self.m.path['start_dir'].join(dir_path)
+      dir_path = self.m.path.start_dir / dir_path
 
     if 'checkout' not in self.m.path:
-      self.m.path['checkout'] = dir_path
+      self.m.path.checkout_dir = dir_path
 
     git_setup_args = ['--path', dir_path, '--url', url]
 
@@ -198,12 +203,12 @@ class GitApi(recipe_api.RecipeApi):
       if use_git_cache:
         with self.m.context(env={'PATH': path}):
           self('cache', 'populate', '-c',
-               self.m.path['cache'].join('git'), url,
+               self.m.path.cache_dir / 'git', url,
                name='populate cache',
                raise_on_failure=raise_on_failure)
           dir_cmd = self(
               'cache', 'exists', '--quiet',
-              '--cache-dir', self.m.path['cache'].join('git'), url,
+              '--cache-dir', self.m.path.cache_dir / 'git', url,
               raise_on_failure=raise_on_failure,
               stdout=self.m.raw_io.output(),
               step_test_data=lambda:
@@ -254,6 +259,10 @@ class GitApi(recipe_api.RecipeApi):
 
       if tags:
         fetch_args.append('--tags')
+
+      if depth:
+        assert isinstance(depth, int)
+        fetch_args += ['--depth', depth]
 
       fetch_step_name = 'git fetch%s' % step_suffix
       if display_fetch_size:

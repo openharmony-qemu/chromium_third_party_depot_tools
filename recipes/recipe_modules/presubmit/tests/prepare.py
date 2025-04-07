@@ -6,7 +6,7 @@ from recipe_engine import post_process
 from recipe_engine import recipe_api
 
 
-PYTHON_VERSION_COMPATIBILITY = 'PY2+3'
+PYTHON_VERSION_COMPATIBILITY = 'PY3'
 
 DEPS = [
   'gclient',
@@ -27,7 +27,7 @@ PROPERTIES = {
 
 def RunSteps(api, patch_project, patch_repository_url):
   api.gclient.set_config('infra')
-  with api.context(cwd=api.path['cache'].join('builder')):
+  with api.context(cwd=api.path.cache_dir / 'builder'):
     bot_update_step = api.presubmit.prepare()
 
 

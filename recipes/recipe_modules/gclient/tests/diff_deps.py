@@ -5,7 +5,7 @@
 from recipe_engine.post_process import (DropExpectation, StatusSuccess,
                                         SummaryMarkdown)
 
-PYTHON_VERSION_COMPATIBILITY = 'PY2+3'
+PYTHON_VERSION_COMPATIBILITY = 'PY3'
 
 DEPS = [
   'recipe_engine/assertions',
@@ -19,7 +19,7 @@ DEPS = [
 ]
 
 def RunSteps(api):
-  src_cfg = api.gclient.make_config(CACHE_DIR=api.path['cache'].join('git'))
+  src_cfg = api.gclient.make_config(CACHE_DIR=api.path.cache_dir / 'git')
 
   soln = src_cfg.solutions.add()
   soln.name = 'src'
@@ -33,7 +33,7 @@ def RunSteps(api):
   })
 
   api.gclient.c = src_cfg
-  affected_files = api.gclient.diff_deps(api.path['cache'])
+  affected_files = api.gclient.diff_deps(api.path.cache_dir)
 
   api.assertions.assertEqual(
       affected_files,

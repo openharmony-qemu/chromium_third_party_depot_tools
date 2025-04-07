@@ -3,6 +3,8 @@
 # found in the LICENSE file.
 
 from recipe_engine import recipe_api
+from recipe_engine.recipe_test_api import StepTestData
+from typing import Callable
 
 class GerritApi(recipe_api.RecipeApi):
   """Module for interact with Gerrit endpoints"""
@@ -71,6 +73,9 @@ class GerritApi(recipe_api.RecipeApi):
         '--commit', commit,
         '--json_file', self.m.json.output()
     ]
+    allow_existent_branch = kwargs.pop('allow_existent_branch', False)
+    if allow_existent_branch:
+      args.append('--allow-existent-branch')
     step_name = 'create_gerrit_branch (%s %s)' % (project, branch)
     step_result = self(step_name, args, **kwargs)
     ref = step_result.json.output.get('ref')
@@ -274,6 +279,26 @@ class GerritApi(recipe_api.RecipeApi):
         step_test_data=step_test_data,
     ).json.output
 
+  def restore_change(self, host, change, message=None, name=None,
+                     step_test_data=None):
+    args = [
+        'restore',
+        '--host', host,
+        '--change', change,
+        '--json_file', self.m.json.output(),
+    ]
+    if message:
+      args.extend(('--message', message))
+    if not step_test_data:
+      step_test_data = lambda: self.test_api.get_one_change_response_data(
+          status='NEW', _number=str(change))
+
+    return self(
+        name or 'restore',
+        args,
+        step_test_data=step_test_data,
+    ).json.output
+
   def set_change_label(self,
                        host,
                        change,
@@ -288,6 +313,43 @@ class GerritApi(recipe_api.RecipeApi):
     ]
     return self(
         name or 'setlabel',
+        args,
+        step_test_data=step_test_data,
+    ).json.output
+
+  def add_message(
+      self,
+      host: str,
+      change: int,
+      message: str,
+      revision: str | int = 'current',
+      step_name: str = None,
+      step_test_data: Callable[[], StepTestData] | None = None) -> None:
+    """Add a message to a change at given revision.
+
+    Args:
+      * host: URL of Gerrit host of the change.
+      * change: The ID of the change to add message to as documented here:
+          https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#change-id
+      * message: The content of the message to add to the change.
+      * revision: The ID of the revision of change to add message to as
+          documented here:
+          https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#revision-id
+          This defaults to current, which names the most recent patchset.
+      * step_name: Optional step name.
+      * step_test_data: Optional mock test data for the underlying gerrit
+          client.
+    """
+    args = [
+        'addmessage', '--host', host, '--change',
+        int(change), '--revision',
+        str(revision), '--message', message, '--json_file',
+        self.m.json.output()
+    ]
+    if not step_test_data:
+      step_test_data = lambda: self.m.json.test_api.output({})
+    return self(
+        step_name or 'add message',
         args,
         step_test_data=step_test_data,
     ).json.output

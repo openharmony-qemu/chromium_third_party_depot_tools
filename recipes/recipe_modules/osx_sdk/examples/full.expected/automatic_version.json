@@ -6,7 +6,7 @@
       "-root",
       "[CACHE]/osx_sdk",
       "-ensure-file",
-      "infra/tools/mac_toolchain/${platform} git_revision:248bbfc433c8e2fc4e3536d8f58477724ce7110d",
+      "infra/tools/mac_toolchain/${platform} git_revision:26bb3effce1bc1896a3776c21b84e76ae82c3917",
       "-max-threads",
       "0",
       "-json-output",
@@ -19,13 +19,24 @@
       "@@@STEP_LOG_LINE@json.output@  \"result\": {@@@",
       "@@@STEP_LOG_LINE@json.output@    \"\": [@@@",
       "@@@STEP_LOG_LINE@json.output@      {@@@",
-      "@@@STEP_LOG_LINE@json.output@        \"instance_id\": \"resolved-instance_id-of-git_revision:248\", @@@",
+      "@@@STEP_LOG_LINE@json.output@        \"instance_id\": \"resolved-instance_id-of-git_revision:26b\",@@@",
       "@@@STEP_LOG_LINE@json.output@        \"package\": \"infra/tools/mac_toolchain/resolved-platform\"@@@",
       "@@@STEP_LOG_LINE@json.output@      }@@@",
       "@@@STEP_LOG_LINE@json.output@    ]@@@",
       "@@@STEP_LOG_LINE@json.output@  }@@@",
       "@@@STEP_LOG_LINE@json.output@}@@@",
       "@@@STEP_LOG_END@json.output@@@"
+    ]
+  },
+  {
+    "cmd": [
+      "sw_vers",
+      "-productVersion"
+    ],
+    "infra_step": true,
+    "name": "find macOS version",
+    "~followup_annotations": [
+      "@@@STEP_TEXT@Running on '10.15.6'.@@@"
     ]
   },
   {
