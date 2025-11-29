@@ -849,7 +849,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
                     # exist.
                     logging.warning(
                         'GCS dependency %s new version, removing old.', name)
-                    shutil.rmtree(gcs_deps[0].output_dir)
+                    gclient_utils.rmtree(gcs_deps[0].output_dir)
             else:
                 url = dep_value.get('url')
                 deps_to_add.append(
@@ -1658,8 +1658,10 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
             'checkout_mips': 'mips' in self.target_cpu,
             'checkout_mips64': 'mips64' in self.target_cpu,
             'checkout_ppc': 'ppc' in self.target_cpu,
+            'checkout_riscv64': 'riscv64' in self.target_cpu,
             'checkout_s390': 's390' in self.target_cpu,
             'checkout_x64': 'x64' in self.target_cpu,
+            'checkout_loong64': 'loong64' in self.target_cpu,
             'host_cpu': detect_host_arch.HostArch(),
         }
 
