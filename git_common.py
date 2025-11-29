@@ -59,7 +59,7 @@ IS_WIN = sys.platform == 'win32'
 TEST_MODE = False
 
 
-def win_find_git():
+def win_find_git() -> str:
     for elem in os.environ.get('PATH', '').split(os.pathsep):
         for candidate in ('git.exe', 'git.bat'):
             path = os.path.join(elem, candidate)
@@ -70,14 +70,35 @@ def win_find_git():
                 # so we want to avoid it whenever possible, by extracting the
                 # path to git.exe from git.bat in depot_tools.
                 if candidate == 'git.bat':
-                    git_bat = open(path).readlines()
-                    new_path = os.path.join(elem, git_bat[-1][6:-5])
-                    if (git_bat[-1].startswith('"%~dp0')
-                            and git_bat[-1].endswith('" %*\n')
-                            and new_path.endswith('.exe')):
-                        path = new_path
+                    path = _extract_git_path_from_git_bat(path)
                 return path
     raise ValueError('Could not find Git on PATH.')
+
+
+def _extract_git_path_from_git_bat(path: str) -> str:
+    """Attempts to extract the path to git.exe from git.bat.
+
+    Args:
+        path: the absolute path to git.bat.
+
+    Returns:
+        The absolute path to git.exe if extraction succeeded,
+        otherwise returns the input path to git.bat.
+    """
+    with open(path, 'r') as f:
+        git_bat = f.readlines()
+        if git_bat[-1].endswith('" %*\n'):
+            if git_bat[-1].startswith('"%~dp0'):
+                # Handle relative path.
+                new_path = os.path.join(os.path.dirname(path),
+                                        git_bat[-1][6:-5])
+            elif git_bat[-1].startswith('"'):
+                # Handle absolute path.
+                new_path = git_bat[-1][1:-5]
+
+            if new_path.endswith('.exe'):
+                return new_path
+    return path
 
 
 GIT_EXE = 'git' if not IS_WIN else win_find_git()
@@ -604,6 +625,60 @@ def get_branch_tree(use_limit=False):
     return skipped, branch_tree
 
 
+def get_diverged_branches(branch_tree=None):
+    """Gets the branches from the tree that have diverged from their upstream
+
+    Returns the list of branches that have diverged from their respective
+    upstream branch.
+    Expects to receive a tree as generated from `get_branch_tree`, which it will
+    call if not supplied, ignoring branches without upstreams.
+    """
+    if not branch_tree:
+        _, branch_tree = get_branch_tree()
+    diverged_branches = []
+    for branch, upstream_branch in branch_tree.items():
+        # If the merge base of a branch and its upstream is not equal to the
+        # upstream, then it means that both branch diverged.
+        upstream_branch_hash = hash_one(upstream_branch)
+        merge_base_hash = hash_one(get_or_create_merge_base(branch))
+        if upstream_branch_hash != merge_base_hash:
+            diverged_branches.append(branch)
+    return diverged_branches
+
+
+def get_hashes(branch_tree=None):
+    """Get the dictionary of {branch: hash}
+
+    Returns a dictionary that contains the hash of every branch. Suitable for
+    saving hashes before performing destructive operations to perform
+    appropriate rebases.
+    Expects to receive a tree as generated from `get_branch_tree`, which it will
+    call if not supplied, ignoring branches without upstreams.
+    """
+    if not branch_tree:
+        _, branch_tree = get_branch_tree()
+    hashes = {}
+    for branch, upstream_branch in branch_tree.items():
+        hashes[branch] = hash_one(branch)
+        hashes[upstream_branch] = hash_one(upstream_branch)
+    return hashes
+
+
+def get_downstream_branches(branch_tree=None):
+    """Get the dictionary of {branch: children}
+
+    Returns a dictionary that contains the list of downstream branches for every
+    branch.
+    Expects to receive a tree as generated from `get_branch_tree`, which it will
+    call if not supplied, ignoring branches without upstreams.
+    """
+    if not branch_tree:
+        _, branch_tree = get_branch_tree()
+    downstream_branches = collections.defaultdict(list)
+    for branch, upstream_branch in branch_tree.items():
+        downstream_branches[upstream_branch].append(branch)
+    return downstream_branches
+
 def get_or_create_merge_base(branch, parent=None) -> Optional[str]:
     """Finds the configured merge base for branch.
 
@@ -887,8 +962,15 @@ def run_stream_with_retcode(*cmd, **kwargs):
     finally:
         retcode = proc.wait()
         if retcode != 0:
-            raise subprocess2.CalledProcessError(retcode, cmd, os.getcwd(), b'',
-                                                 b'')
+            cwd = kwargs.get('cwd', os.getcwd())
+            raise subprocess2.CalledProcessError(
+                retcode,
+                cmd,
+                # cwd could be either str or os.PathLike.
+                f'{cwd}',
+                b'',
+                b'',
+            )
 
 
 def run_with_stderr(*cmd, **kwargs) -> Tuple[str, str] | Tuple[bytes, bytes]:
@@ -947,8 +1029,15 @@ def _run_with_stderr(*cmd, **kwargs) -> Tuple[str, str] | Tuple[bytes, bytes]:
     stdout, stderr = proc.communicate(indata)
     retcode = proc.wait()
     if retcode not in accepted_retcodes:
-        raise subprocess2.CalledProcessError(retcode, cmd, os.getcwd(), stdout,
-                                             stderr)
+        cwd = kwargs.get('cwd', os.getcwd())
+        raise subprocess2.CalledProcessError(
+            retcode,
+            cmd,
+            # cwd could be either str or os.PathLike.
+            f'{cwd}',
+            stdout,
+            stderr,
+        )
 
     if autostrip:
         stdout = (stdout or b'').strip()

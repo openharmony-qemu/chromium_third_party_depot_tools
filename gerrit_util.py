@@ -30,7 +30,8 @@ import urllib.parse
 from dataclasses import dataclass
 from io import StringIO
 from multiprocessing.pool import ThreadPool
-from typing import Any, Container, Dict, List, Optional
+from typing import Any, Container, Dict, Mapping
+from typing import NamedTuple, List, Optional
 from typing import Tuple, TypedDict, cast
 
 import httplib2
@@ -174,46 +175,50 @@ class SSOHelper(object):
 ssoHelper = SSOHelper()
 
 
-@functools.lru_cache(maxsize=None)
 def ShouldUseSSO(host: str, email: str) -> bool:
     """Return True if we should use SSO for the given Gerrit host and user."""
     LOGGER.debug("Determining whether we should use SSO...")
+    result = CheckShouldUseSSO(host, email)
+    LOGGER.debug("SSO=%r: %s", result.status, result.reason)
+    return result.status
+
+
+class SSOCheckResult(NamedTuple):
+    status: bool
+    reason: str
+
+
+@functools.lru_cache(maxsize=None)
+def CheckShouldUseSSO(host: str, email: str) -> SSOCheckResult:
+    """Checks if we should use SSO for the given Gerrit host and user."""
     if not newauth.Enabled():
-        LOGGER.debug("SSO=False: not opted in")
-        return False
+        return SSOCheckResult(False, 'not opted in')
     if not host.endswith('.googlesource.com'):
-        LOGGER.debug("SSO=False: non-googlesource host %r", host)
-        return False
-    if newauth.SkipSSO():
-        LOGGER.debug("SSO=False: set skip SSO config")
-        return False
+        return SSOCheckResult(False, f'non-googlesource host {host}')
     if not ssoHelper.find_cmd():
-        LOGGER.debug("SSO=False: no SSO command")
-        return False
+        return SSOCheckResult(False, 'no SSO command')
+    if gclient_utils.IsEnvCog():
+        return SSOCheckResult(True, 'in Cog')
     if not email:
-        LOGGER.debug(
-            "SSO=True: email is empty or missing (and SSO command available)")
-        return True
+        return SSOCheckResult(
+            True, 'email is empty or missing (and SSO command available)')
     if email.endswith('@google.com'):
-        LOGGER.debug("SSO=True: email is google.com")
-        return True
+        return SSOCheckResult(True, 'email is @google.com')
     if not email.endswith('@chromium.org'):
-        LOGGER.debug("SSO=False: not chromium.org")
-        return False
+        return SSOCheckResult(False, 'email is not @chromium.org')
     authenticator = SSOAuthenticator()
+    records: list[EmailRecord] = []
     try:
-        records = GetAccountEmails(host, 'self', authenticator=authenticator)
+        records = GetAccountEmails(host, 'self',
+                                   authenticator=authenticator) or []
     except GerritError as e:
         if e.http_status == 400:
             # This is likely because the user doesn't have an account on the Gerrit host.
-            LOGGER.debug("SSO=False: get account emails returned 400")
-            return False
+            return SSOCheckResult(False, 'account missing on Gerrit host')
         raise
     if any(email == r['email'] for r in records):
-        LOGGER.debug("SSO=True: email is linked to google.com")
-        return True
-    LOGGER.debug("SSO=False: unlinked chromium.org")
-    return False
+        return SSOCheckResult(True, 'email is linked to @google.com email')
+    return SSOCheckResult(False, 'email is not linked to @google.com email')
 
 
 class _Authenticator(object):
@@ -270,9 +275,6 @@ class _Authenticator(object):
 
             use_new_auth = newauth.Enabled()
 
-            # Allow skipping SSOAuthenticator for local testing purposes.
-            skip_sso = newauth.SkipSSO()
-
             if use_new_auth:
                 LOGGER.debug('_Authenticator.get: using new auth stack')
                 if LuciContextAuthenticator.is_applicable():
@@ -286,13 +288,9 @@ class _Authenticator(object):
                         SSOAuthenticator(),
                         # GCE detection can't distinguish cloud workstations.
                         GceAuthenticator(),
-                        LuciAuthAuthenticator(),
+                        GitCredsAuthenticator(),
                         NoAuthenticator(),
                     ]
-                    if skip_sso:
-                        LOGGER.debug(
-                            'Authenticator.get: skipping SSOAuthenticator.')
-                        a = a[1:]
                     ret = ChainedAuthenticator(a)
                 cls._resolved = ret
                 return ret
@@ -333,16 +331,7 @@ def ensure_authenticated(gerrit_host: str, git_host: str) -> Tuple[bool, str]:
 
 
 class SSOAuthenticator(_Authenticator):
-    """SSOAuthenticator implements a Google-internal authentication scheme.
-
-    TEMPORARY configuration for Googlers (one `url` block for each Gerrit host):
-
-        [url "sso://chromium/"]
-          insteadOf = https://chromium.googlesource.com/
-          insteadOf = http://chromium.googlesource.com/
-        [depot-tools]
-          useNewAuthStack = 1
-    """
+    """SSOAuthenticator implements a Google-internal authentication scheme."""
 
     # This is set to true in tests, allows _parse_config to consume expired
     # cookies.
@@ -850,19 +839,34 @@ class LuciContextAuthenticator(_Authenticator):
         return ''
 
 
-class LuciAuthAuthenticator(LuciContextAuthenticator):
-    """_Authenticator implementation that uses `luci-auth` credentials.
+class GitCredsAuthenticator(_Authenticator):
+    """_Authenticator implementation that uses `git-credential-luci` with OAuth.
 
-    This is the same as LuciContextAuthenticator, except that it is for local
-    non-google.com developer credentials.
+    This is similar to LuciContextAuthenticator, except that it is for
+    local non-google.com developer credentials.
     """
+
+    def __init__(self):
+        self._authenticator = auth.GerritAuthenticator()
+
+    @property
+    def luci_auth(self) -> auth.Authenticator:
+        return self._authenticator
+
+    def authenticate(self, conn: HttpConn):
+        conn.req_headers[
+            'Authorization'] = f'Bearer {self._authenticator.get_access_token()}'
+
+    def debug_summary_state(self) -> str:
+        # TODO(b/343230702) - report ambient account name.
+        return ''
 
     @classmethod
     def gerrit_account_exists(cls, host: str) -> bool:
         """Return True if the Gerrit account exists.
 
-        This checks the user currently logged in with luci-auth.
-        If the user is not logged in with luci-auth, returns False.
+        This checks the user currently logged in with git-credential-luci.
+        If the user is not logged in with git-credential-luci, returns False.
 
         This method caches positive results in the user's Git config.
         """
@@ -878,9 +882,9 @@ class LuciAuthAuthenticator(LuciContextAuthenticator):
             return True
         try:
             info = GetAccountDetails(host, authenticator=cls())
-        except auth.LoginRequiredError:
+        except auth.GitLoginRequiredError:
             LOGGER.debug(
-                "Cannot check Gerrit account existence; missing luci-auth login"
+                "Cannot check Gerrit account existence; missing git-credential-luci login"
             )
             return False
         except GerritError as e:
@@ -895,7 +899,18 @@ class LuciAuthAuthenticator(LuciContextAuthenticator):
             LOGGER.debug("Gerrit account does not exist on %r", host)
             return False
         LOGGER.debug("Gerrit account exists on %r", host)
-        scm.GIT.SetConfig(cwd, 'depot-tools.hostHasAccount', host, append=True)
+        try:
+            scm.GIT.SetConfig(cwd,
+                              'depot-tools.hostHasAccount',
+                              host,
+                              append=True)
+        except subprocess2.CalledProcessError as e:
+            # This may be called outside of a Git repository (e.g., when
+            # fetching from scratch), in which case we don't have a Git
+            # repository to cache the results of our check, so skip the
+            # caching.
+            LOGGER.debug(
+                "Got error trying to cache 'depot-tools.hostHasAccount': %s", e)
         return True
 
     def is_applicable(self, *, conn: Optional[HttpConn] = None):
@@ -1409,7 +1424,7 @@ def AbandonChange(host, change, msg=''):
     path = 'changes/%s/abandon' % change
     body = {'message': msg} if msg else {}
     conn = CreateHttpConn(host, path, reqtype='POST', body=body)
-    return ReadHttpJsonResponse(conn)
+    return ReadHttpJsonResponse(conn, accept_statuses=(200, 204, 409))
 
 
 def MoveChange(host, change, destination_branch):
@@ -1443,7 +1458,10 @@ def SubmitChange(host, change):
     """Submits a Gerrit change via Gerrit."""
     path = 'changes/%s/submit' % change
     conn = CreateHttpConn(host, path, reqtype='POST')
-    return ReadHttpJsonResponse(conn)
+    # If a submit fails due to a merge conflict, Gerrit returns 409. Retrying
+    # more than once probably won't help since the merge conflict will still
+    # exist.
+    return ReadHttpJsonResponse(conn, max_tries=2)
 
 
 def GetChangesSubmittedTogether(host, change):
@@ -1500,7 +1518,12 @@ def DeletePendingChangeEdit(host, change):
     ReadHttpResponse(conn, accept_statuses=[204, 404])
 
 
-def CherryPick(host, change, destination, revision='current', message=None):
+def CherryPick(host,
+               change,
+               destination,
+               revision='current',
+               message=None,
+               base=None):
     """Create a cherry-pick commit from the given change, onto the given
     destination.
     """
@@ -1508,6 +1531,8 @@ def CherryPick(host, change, destination, revision='current', message=None):
     body = {'destination': destination}
     if message:
         body['message'] = message
+    if base:
+        body['base'] = base
     conn = CreateHttpConn(host, path, reqtype='POST', body=body)
 
     # If a cherry pick fails due to a merge conflict, Gerrit returns 409.
@@ -1677,8 +1702,12 @@ def SetReview(host,
               msg=None,
               labels=None,
               notify=None,
-              ready=None):
-    """Sets labels and/or adds a message to a code review."""
+              ready=None,
+              automatic_attention_set_update: Optional[bool] = None):
+    """Sets labels and/or adds a message to a code review.
+
+    https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#set-review
+    """
     if not msg and not labels:
         return
     path = f'changes/{change}/revisions/{revision}/review'
@@ -1691,6 +1720,9 @@ def SetReview(host,
         body['notify'] = 'ALL' if notify else 'NONE'
     if ready:
         body['ready'] = True
+    if automatic_attention_set_update is not None:
+        body[
+            'ignore_automatic_attention_set_rules'] = not automatic_attention_set_update
     conn = CreateHttpConn(host, path, reqtype='POST', body=body)
     response = ReadHttpJsonResponse(conn)
     if labels:

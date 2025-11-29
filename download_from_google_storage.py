@@ -33,8 +33,7 @@ PLATFORM_MAPPING = {
     'linux': 'linux',  # Python 3.3+.
     'linux2': 'linux',  # Python < 3.3 uses "linux2" / "linux3".
     'win32': 'win',
-    'aix6': 'aix',
-    'aix7': 'aix',
+    'aix': 'aix',  # Python 3.8+
     'zos': 'zos',
 }
 
@@ -143,7 +142,8 @@ class Gsutil(object):
         if status_code_match:
             return (int(status_code_match.group(1)), out, err)
         if ('ServiceException: 401 Anonymous' in err):
-            return (401, out, err)
+            return (401, out, err + '\nTry running "gsutil.py config" to log '
+                    ' into Google Cloud Storage.')
         if ('You are attempting to access protected data with '
                 'no configured credentials.' in err):
             return (403, out, err)
@@ -625,8 +625,7 @@ def main(args):
     parser.add_option('-n',
                       '--no_auth',
                       action='store_true',
-                      help='Skip auth checking.  Use if it\'s known that the '
-                      'target bucket is a public bucket.')
+                      help='DEPRECATED: This flag has no effect.')
     parser.add_option('-p',
                       '--platform',
                       help='A regular expression that is compared against '
@@ -671,26 +670,15 @@ def main(args):
                       options.platform)
             return 0
 
-    # Set the boto file to /dev/null if we don't need auth.
     if options.no_auth:
-        if (set(
-            ('http_proxy', 'https_proxy')).intersection(env.lower()
-                                                        for env in os.environ)
-                and 'NO_AUTH_BOTO_CONFIG' not in os.environ):
-            print(
-                'NOTICE: You have PROXY values set in your environment, but '
-                'gsutil in depot_tools does not (yet) obey them.',
-                file=sys.stderr)
-            print(
-                'Also, --no_auth prevents the normal BOTO_CONFIG environment '
-                'variable from being used.',
-                file=sys.stderr)
-            print(
-                'To use a proxy in this situation, please supply those '
-                'settings in a .boto file pointed to by the '
-                'NO_AUTH_BOTO_CONFIG environment variable.',
-                file=sys.stderr)
-        options.boto = os.environ.get('NO_AUTH_BOTO_CONFIG', os.devnull)
+        print('--no_auth is deprecated, this flag has no effect.')
+
+    if 'NO_AUTH_BOTO_CONFIG' in os.environ:
+        print(
+            'The NO_AUTH_BOTO_CONFIG environment variable is deprecated and ',
+            'has no effect. gsutil.py will always use any [GSUtil] or [Boto] ',
+            'settings in the .boto configuration file, regardless of ',
+            'whether you\'re logged in with luci-auth.')
 
     # Make sure gsutil exists where we expect it to.
     if os.path.exists(GSUTIL_DEFAULT_PATH):

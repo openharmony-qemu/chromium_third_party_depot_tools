@@ -55,9 +55,11 @@ import git_auth
 import git_common
 import git_footers
 import git_new_branch
+import git_squash_branch
 import google_java_format
 import metrics
 import metrics_utils
+import metrics_xml_format
 import newauth
 import owners_client
 import owners_finder
@@ -220,7 +222,7 @@ def RunCommand(args, error_ok=False, error_message=None, shell=False, **kwargs):
         return out
 
 
-def RunGit(args, **kwargs):
+def RunGit(args, **kwargs) -> str:
     """Returns stdout."""
     return RunCommand(['git'] + args, **kwargs)
 
@@ -692,9 +694,17 @@ def _ComputeFormatDiffLineRanges(files, upstream_commit, expand=0):
                 diff_start = match[1]
                 diff_count = 1
 
+            # if the original lines were removed without replacements,
+            # the diff count is 0. Then, no formatting is necessary.
+            if diff_count == 0:
+                continue
+
             diff_start = int(diff_start)
             diff_count = int(diff_count)
-            diff_end = diff_start + diff_count + expand
+            # diff_count contains the diff_start line, and the line numbers
+            # given to formatter args are inclusive. For example, in
+            # google-java-format "--lines 5:10" includes 5th-10th lines.
+            diff_end = diff_start + diff_count - 1 + expand
             diff_start = max(prev_end + 1, diff_start - expand)
             if diff_start <= diff_end:
                 prev_end = diff_end
@@ -797,6 +807,29 @@ def _GetCommitCountSummary(begin_commit: str,
     return f'{count} commit{"s"[:count!=1]}'
 
 
+def _prepare_superproject_push_option() -> str | None:
+    """Returns the push option specifying the root repo of a gclient checkout.
+
+    The push option will be formatted:
+        'custom-keyed-value=rootRepo:{host}/{project}'
+
+    For chromium/src the entire push option would be:
+        'custom-keyed-value=rootRepo:chromium/chromium/src'.
+    """
+    gclient_root = gclient_paths.FindGclientRoot(os.getcwd())
+    if not gclient_root:
+        return None
+
+    superproject_url = gclient_paths.GetGClientPrimarySolutionURL(gclient_root)
+    if not superproject_url:
+        return None
+
+    parsed_url = urllib.parse.urlparse(superproject_url)
+    host = parsed_url.netloc.removesuffix('.googlesource.com')
+    project = parsed_url.path.strip('/').removesuffix('.git')
+    return f'custom-keyed-value=rootRepo:{host}/{project}'
+
+
 def print_stats(args):
     """Prints statistics about the change to the user."""
     # --no-ext-diff is broken in some versions of Git, so try to work around
@@ -852,7 +885,8 @@ class Settings(object):
 
     def GetRoot(self):
         if self.root is None:
-            self.root = os.path.abspath(self.GetRelativeRoot())
+            self.root = os.path.realpath(os.path.abspath(
+                self.GetRelativeRoot()))
         return self.root
 
     def GetTreeStatusUrl(self, error_ok=False):
@@ -1831,7 +1865,7 @@ class Changelist(object):
                 description = '\n'.join(l.rstrip() for l in sys.stdin)
             elif description == '+':
                 description = _create_description_from_log(git_diff_args)
-        elif self.GetIssue():
+        elif self.GetIssue() and options.squash:
             description = self.FetchDescription()
         elif options.message:
             description = options.message
@@ -1954,6 +1988,8 @@ class Changelist(object):
 
         if options.enable_auto_submit:
             refspec_opts.append('l=Auto-Submit+1')
+        if options.enable_owners_override:
+            refspec_opts.append('l=Owners-Override+1')
         if options.set_bot_commit:
             refspec_opts.append('l=Bot-Commit+1')
         if options.use_commit_queue:
@@ -2178,7 +2214,10 @@ class Changelist(object):
 
         change_desc = self._GetDescriptionForUpload(options, git_diff_args,
                                                     files)
-        if not options.bypass_hooks:
+
+        # For options.squash, RunHook is called once for each branch in
+        # PrepareChange().
+        if not options.bypass_hooks and not options.squash:
             hook_results = self.RunHook(committing=False,
                                         may_prompt=not options.force,
                                         verbose=options.verbose,
@@ -2967,10 +3006,18 @@ class Changelist(object):
         push_returncode = 0
         before_push = time_time()
         try:
+            # Combine user-provided push options with the potential
+            # superproject push option.
+            all_push_options = []
+            if git_push_options:
+                all_push_options.extend(git_push_options)
+            if superproject_option := _prepare_superproject_push_option():
+                all_push_options.append(superproject_option)
+
             remote_url = self.GetRemoteUrl()
             push_cmd = ['git', 'push', remote_url, refspec]
-            if git_push_options:
-                for opt in git_push_options:
+            if all_push_options:
+                for opt in all_push_options:
                     push_cmd.extend(['-o', opt])
 
             push_stdout = gclient_utils.CheckCallAndFilter(
@@ -3884,25 +3931,26 @@ class _GitCookiesChecker(object):
 @metrics.collector.collect_metrics('git cl creds-check')
 def CMDcreds_check(parser, args):
     """Checks credentials and suggests changes."""
-    _, _ = parser.parse_args(args)
+    parser.add_option(
+        '--global',
+        action='store_true',
+        dest='force_global',
+        help='Check global credentials instead of for the current repo.')
+    options, args = parser.parse_args(args)
 
-    if newauth.Enabled():
-        cl = Changelist()
-        git_auth.Configure(os.getcwd(), cl)
-        # Perform some advisory checks
-        email = scm.GIT.GetConfig(os.getcwd(), 'user.email') or ''
-        if not gerrit_util.ShouldUseSSO(cl.GetGerritHost(), email):
-            a = gerrit_util.LuciAuthAuthenticator()
+    if newauth.SwitchedOn():
+
+        def f() -> str:
+            cl = Changelist()
             try:
-                a.luci_auth.get_access_token()
-            except auth.LoginRequiredError as e:
-                print('NOTE: You are not logged in with luci-auth.')
-                print(
-                    'You may not be able to perform some actions without logging in.'
-                )
-                print('If you wish to log in, run:')
-                print('   ' + e.login_command)
-                print('and re-run this command.')
+                return cl.GetRemoteUrl()
+            except subprocess2.CalledProcessError:
+                return ''
+
+        wizard = git_auth.ConfigWizard(ui=git_auth.UserInterface(
+            sys.stdin, sys.stdout),
+                                       remote_url_func=f)
+        wizard.run(force_global=options.force_global)
         return 0
     if newauth.ExplicitlyDisabled():
         git_auth.ClearRepoConfig(os.getcwd(), Changelist())
@@ -4258,6 +4306,91 @@ def CMDarchive(parser, args):
     return 0
 
 
+@metrics.collector.collect_metrics('git cl squash-closed')
+def CMDsquash_closed(parser, args):
+    """Squashes branches associated with closed changelists, and reparents their children."""
+    if gclient_utils.IsEnvCog():
+        print('squash_closed command is not supported in non-git environment.',
+              file=sys.stderr)
+        return 1
+
+    parser.add_option(
+        '-j',
+        '--maxjobs',
+        action='store',
+        type=int,
+        help='The maximum number of jobs to use when retrieving review status.')
+    parser.add_option('-f',
+                      '--force',
+                      action='store_true',
+                      help='Bypasses the confirmation prompt.')
+    parser.add_option('-d',
+                      '--dry-run',
+                      action='store_true',
+                      help='Skip the branch tagging and removal steps.')
+
+    options, args = parser.parse_args(args)
+    if args:
+        parser.error('Unsupported args: %s' % ' '.join(args))
+
+    if git_common.is_dirty_git_tree('squash-closed'):
+        return 1
+
+    branches = RunGit(['for-each-ref', '--format=%(refname)', 'refs/heads'])
+    if not branches:
+        return 0
+
+    print('Finding all branches associated with closed issues...')
+    changes = [Changelist(branchref=b) for b in branches.splitlines()]
+    statuses = get_cl_statuses(changes,
+                               fine_grained=True,
+                               max_processes=options.maxjobs)
+    proposal = [cl.GetBranch() for cl, status in statuses if status == 'closed']
+    proposal.sort()
+
+    if not proposal:
+        print('No branches with closed codereview issues found.')
+        return 0
+
+    print('\nBranches with closed issues that will be squashed:\n')
+    for next_item in proposal:
+        print('  ' + next_item)
+
+    # Quit now on if this is a dry run.
+    if options.dry_run:
+        print('\nNo changes were made (dry run).\n')
+        return 0
+
+    current_branch = scm.GIT.GetBranch(settings.GetRoot())
+    if current_branch in proposal:
+        print('You are currently on a branch \'%s\' which is associated with a '
+              'closed codereview issue, so squash-closed cannot proceed. '
+              'Please checkout another branch and run this command again.' %
+              current_branch)
+        return 1
+
+    # Prompt the user to continue unless they've specified to always continue.
+    if not options.force:
+        answer = gclient_utils.AskForData(
+            '\nProceed with deletion (Y/n)? ').lower()
+        if answer not in ('y', ''):
+            print('Aborted.')
+            return 1
+
+    # scm.GIT.GetBranch does not work for detached HEAD situations.
+    reset_branch = git_common.current_branch()
+    for branch in proposal:
+        RunGit(['checkout', branch])
+        if git_squash_branch.main([]) != 0:
+            RunGit(['checkout', reset_branch])
+            return 1
+
+    RunGit(['checkout', reset_branch])
+    print('\nJob\'s done!')
+
+    return 0
+
+
 @metrics.collector.collect_metrics('git cl status')
 def CMDstatus(parser, args):
     """Show status of changelists.
@@ -4550,13 +4683,9 @@ def _create_commit_message(orig_message, bug=None):
 def CMDcherry_pick(parser, args):
     """Upload a chain of cherry picks to Gerrit.
 
-    This must be run inside the git repo you're trying to make changes to.
+    This should either be run inside the git repo you're trying to make changes
+    to or "--host" should be provided.
     """
-    if gclient_utils.IsEnvCog():
-        print('cherry-pick command is not supported in non-git environment',
-              file=sys.stderr)
-        return 1
-
     parser.add_option('--branch', help='Gerrit branch, e.g. refs/heads/main')
     parser.add_option('--bug',
                       help='Bug to add to the description of each change.')
@@ -4564,16 +4693,36 @@ def CMDcherry_pick(parser, args):
                       type='int',
                       help='The parent change of the first cherry-pick CL, '
                       'i.e. the start of the CL chain.')
+    parser.add_option('--host',
+                      default=None,
+                      help='Gerrit host, needed in case the command is used in '
+                      'a non-git environment.')
     options, args = parser.parse_args(args)
+
+    host = None
+    if options.host:
+        try:
+            host = urllib.parse.urlparse(options.host).hostname
+        except ValueError as e:
+            print(f'Unable to parse host: {host}. Error: {e}', file=sys.stderr)
+            return 1
+    else:
+        try:
+            host = Changelist().GetGerritHost()
+        except subprocess2.CalledProcessError:
+            pass
+
+    if not host:
+        print('Unable to determine host. cherry-pick command is not supported\n'
+              'in non-git environment without "--host" provided',
+              file=sys.stderr)
+        return 1
 
     if not options.branch:
         parser.error('Branch is required.')
     if not args:
         parser.error('No revisions to cherry pick.')
 
-    # TODO(b/341792235): Consider using GetCommitMessage after b/362567930 is
-    # fixed so this command can be run outside of a git workspace.
-    host = Changelist().GetGerritHost()
     change_ids_to_message = {}
     change_ids_to_commit = {}
 
@@ -4583,16 +4732,20 @@ def CMDcherry_pick(parser, args):
         # unique. Gerrit will error with "Multiple changes found" if we use a
         # non-unique ID. Instead, query Gerrit with the hash and verify it
         # corresponds to a unique CL.
-        changes = gerrit_util.QueryChanges(host, [('commit', commit)])
+        changes = gerrit_util.QueryChanges(
+            host=host,
+            params=[('commit', commit)],
+            o_params=['CURRENT_REVISION', 'CURRENT_COMMIT'],
+        )
         if not changes:
             raise RuntimeError(f'No changes found for {commit}.')
         if len(changes) > 1:
             raise RuntimeError(f'Multiple changes found for {commit}.')
 
-        change_id = changes[0]['id']
+        change = changes[0]
+        change_id = change['id']
+        message = change['revisions'][commit]['commit']['message']
         change_ids_to_commit[change_id] = commit
-
-        message = git_common.run('show', '-s', '--format=%B', commit).strip()
         change_ids_to_message[change_id] = message
 
     print(f'Creating chain of {len(change_ids_to_message)} cherry pick(s)...')
@@ -4607,17 +4760,33 @@ def CMDcherry_pick(parser, args):
     # Gerrit only supports cherry picking one commit per change, so we have
     # to cherry pick each commit individually and create a chain of CLs.
     parent_change_num = options.parent_change_num
+    parent_commit_hash = None
+
     for change_id, orig_message in change_ids_to_message.items():
         message = _create_commit_message(orig_message, options.bug)
         orig_subj_line = orig_message.splitlines()[0]
+        original_commit_hash = change_ids_to_commit[change_id]
 
-        # Create a cherry pick first, then rebase. If we create a chained CL
-        # then cherry pick, the change will lose its relation to the parent.
+        # Determine the base commit hash for the current cherry-pick by fetching
+        # the details of the previous CL (identified by parent_change_num).
+        # Skip if this is the first CL and no initial parent was given.
+        if parent_change_num:
+            parent_details = gerrit_util.GetChangeDetail(
+                host, str(parent_change_num), o_params=['CURRENT_REVISION'])
+            parent_commit_hash = parent_details['current_revision']
+            print(f'Using base commit {parent_commit_hash} '
+                  f'from parent CL {parent_change_num}.')
+
+        # Call CherryPick with the determined base commit hash
+        print('Attempting cherry-pick of original commit '
+              f'{original_commit_hash} ("{orig_subj_line}") onto base '
+              f'{parent_commit_hash or options.branch + " tip"}...')
         try:
             new_change_info = gerrit_util.CherryPick(host,
                                                      change_id,
                                                      options.branch,
-                                                     message=message)
+                                                     message=message,
+                                                     base=parent_commit_hash)
         except gerrit_util.GerritError as e:
             print(f'Failed to create cherry pick "{orig_subj_line}": {e}. '
                   'Please resolve any merge conflicts.')
@@ -4625,26 +4794,9 @@ def CMDcherry_pick(parser, args):
             return 1
 
         change_ids_to_commit.pop(change_id)
-        new_change_id = new_change_info['id']
         new_change_num = new_change_info['_number']
         new_change_url = gerrit_util.GetChangePageUrl(host, new_change_num)
         print(f'Created cherry pick of "{orig_subj_line}": {new_change_url}')
-
-        if parent_change_num:
-            try:
-                gerrit_util.RebaseChange(host, new_change_id, parent_change_num)
-            except gerrit_util.GerritError as e:
-                parent_change_url = gerrit_util.GetChangePageUrl(
-                    host, parent_change_num)
-                print(f'Failed to rebase {new_change_url} on '
-                      f'{parent_change_url}: {e}. Please resolve any merge '
-                      'conflicts.')
-                print('Once resolved, you can continue the CL chain with '
-                      f'`--parent-change-num={new_change_num}` to specify '
-                      'which change the chain should start with.\n')
-                print_any_remaining_commits()
-                return 1
-
         parent_change_num = new_change_num
 
     return 0
@@ -4900,9 +5052,10 @@ def CMDlint(parser, args):
 def CMDpresubmit(parser, args):
     """Runs presubmit tests on the current changelist."""
     if gclient_utils.IsEnvCog():
-        # TODO - crbug/336555565: give user more instructions on how to
-        # trigger presubmit in Cog once the UX is finalized.
-        print('presubmit command is not supported in non-git environment.',
+        print('presubmit command is not supported in non-git environment. '
+              'Please use the "Chromium PRESUBMITS" panel or the "Run '
+              'Presubmit Checks" command in the command palette in the editor '
+              'instead.',
               file=sys.stderr)
         return 1
     parser.add_option('-u',
@@ -5220,6 +5373,9 @@ def CMDupload(parser, args):
         help='Sends your change to the CQ after an approval. Only '
         'works on repos that have the Auto-Submit label '
         'enabled')
+    parser.add_option('--enable-owners-override',
+                      action='store_true',
+                      help='Adds the Owners-Override label to your change.')
     parser.add_option(
         '--parallel',
         action='store_true',
@@ -5660,8 +5816,8 @@ def CMDsplit(parser, args):
 
     Creates a branch and uploads a CL for each group of files modified in the
     current branch that share a common OWNERS file. In the CL description and
-    comment, the string '$directory', is replaced with the directory containing
-    the shared OWNERS file.
+    comment, the string '$directory' or '$description', is replaced with the
+    directory containing the shared OWNERS file.
     """
     if gclient_utils.IsEnvCog():
         print('split command is not supported in non-git environment.',
@@ -5671,8 +5827,13 @@ def CMDsplit(parser, args):
     parser.add_option('-d',
                       '--description',
                       dest='description_file',
-                      help='A text file containing a CL description in which '
-                      '$directory will be replaced by each CL\'s directory.')
+                      help='A text file containing a CL description, in which '
+                      'the string $description will be replaced by a '
+                      'description of each generated CL (by default, the list '
+                      'of directories that CL covers). '
+                      'Mandatory except in dry runs.\n'
+                      'Usage of the string $directory instead of $description '
+                      'is deprecated, and will be removed in the future.')
     parser.add_option('-c',
                       '--comment',
                       dest='comment_file',
@@ -5684,7 +5845,8 @@ def CMDsplit(parser, args):
         action='store_true',
         default=False,
         help='List the files and reviewers for each CL that would '
-        'be created, but don\'t create branches or CLs.')
+        'be created, but don\'t create branches or CLs.\n'
+        'You can pass -s in addition to get a more concise summary.')
     parser.add_option('--cq-dry-run',
                       action='store_true',
                       default=False,
@@ -5703,7 +5865,7 @@ def CMDsplit(parser, args):
         default=True,
         help='Sends your change to the CQ after an approval. Only '
         'works on repos that have the Auto-Submit label '
-        'enabled')
+        'enabled. This is the default option.')
     parser.add_option(
         '--disable-auto-submit',
         action='store_false',
@@ -5711,29 +5873,91 @@ def CMDsplit(parser, args):
         help='Disables automatic sending of the changes to the CQ '
         'after approval. Note that auto-submit only works for '
         'repos that have the Auto-Submit label enabled.')
-    parser.add_option('--max-depth',
-                      type='int',
-                      default=0,
-                      help='The max depth to look for OWNERS files. Useful for '
-                      'controlling the granularity of the split CLs, e.g. '
-                      '--max-depth=1 will only split by top-level '
-                      'directory. Specifying a value less than 1 means no '
-                      'limit on max depth.')
+    parser.add_option(
+        '--max-depth',
+        type='int',
+        default=0,
+        help='The max depth to look for OWNERS files. '
+        'Controls the granularity of CL splitting by limiting the depth at '
+        'which the script searches for OWNERS files. '
+        'e.g. let\'s consider file a/b/c/d/e.cc. Without this flag, the '
+        'OWNERS file in a/b/c/d/ would be used. '
+        'With --max-depth=2, the OWNERS file in a/b/ would be used. '
+        'If the OWNERS file is missing in this folder, the first OWNERS file '
+        'found in parents is used. '
+        'Lower values of --max-depth result in fewer, larger CLs. Higher values '
+        'produce more, smaller CLs.')
     parser.add_option('--topic',
                       default=None,
                       help='Topic to specify when uploading')
+    parser.add_option(
+        '--target-range',
+        type='int',
+        default=None,
+        nargs=2,
+        help='Usage: --target-range <min> <max>\n                  '
+        'Use the alternate splitting algorithm which tries '
+        'to ensure each CL has between <min> and <max> files, inclusive. '
+        'Rarely, some CLs may have fewer files than specified.')
+    parser.add_option('--from-file',
+                      type='str',
+                      default=None,
+                      help='If present, load the split CLs from the given file '
+                      'instead of computing a splitting. These files are '
+                      'generated each time the script is run.')
+    parser.add_option(
+        '-s',
+        '--summarize',
+        action='store_true',
+        default=False,
+        help='If passed during a dry run, will print out a summary of the '
+        'generated splitting, rather than full details. No effect outside of '
+        'a dry run.')
+    # If we ever switch from optparse to argparse, we can combine these flags
+    # using nargs='*'
+    parser.add_option(
+        '--reviewers',
+        action='append',
+        default=None,
+        help='If present, all generated CLs will be sent to the specified '
+        'reviewer(s) specified, rather than automatically assigned reviewers.\n'
+        'Multiple reviewers can be specified as:                               '
+        '--reviewers a@b.com --reviewers c@d.com\n')
+    parser.add_option(
+        '--no-reviewers',
+        action='store_true',
+        help='If present, generated CLs will not be assigned reviewers. '
+        'Overrides --reviewers.')
+    parser.add_option(
+        '--expect-owners-override',
+        action='store_true',
+        help='If present, the clustering algorithm will group files by '
+        'directory only, without considering ownership.\n'
+        'No effect if --target-range is not passed.\n'
+        'Recommended to be used alongside --reviewers or --no-reviewers.')
     options, _ = parser.parse_args(args)
 
-    if not options.description_file:
+    if not options.description_file and not options.dry_run:
         parser.error('No --description flag specified.')
+
+    if (options.target_range
+            and options.target_range[0] > options.target_range[1]):
+        parser.error('First argument to --target-range cannot '
+                     'be greater than the second argument.')
+
+    if options.no_reviewers:
+        options.reviewers = []
 
     def WrappedCMDupload(args):
         return CMDupload(OptionParser(), args)
 
     return split_cl.SplitCl(options.description_file, options.comment_file,
                             Changelist, WrappedCMDupload, options.dry_run,
+                            options.summarize, options.reviewers,
                             options.cq_dry_run, options.enable_auto_submit,
                             options.max_depth, options.topic,
+                            options.target_range,
+                            options.expect_owners_override, options.from_file,
                             settings.GetRoot())
 
 
@@ -6177,9 +6401,9 @@ def CMDweb(parser, args):
     """Opens the current CL in the web browser."""
     if gclient_utils.IsEnvCog():
         print(
-            'web command is not supported. Please use "Gerrit: Open Changes '
-            'in Gerrit" functionality in the command palette in the Editor '
-            'instead.',
+            'web command is not supported in non-git environment. Please use '
+            '"Gerrit: Open Changes in Gerrit" functionality in the command '
+            'palette in the editor instead.',
             file=sys.stderr)
         return 1
 
@@ -6470,7 +6694,7 @@ def _RunClangFormatDiff(opts, clang_diff_files, top_dir, upstream_commit):
     except clang_format.NotFoundError as e:
         DieWithError(e)
 
-    if opts.full or settings.GetFormatFullByDefault():
+    if opts.full:
         cmd = [clang_format_tool]
         if not opts.dry_run and not opts.diff:
             cmd.append('-i')
@@ -6537,7 +6761,7 @@ def _RunGoogleJavaFormat(opts, paths, top_dir, upstream_commit):
         else:
             base_cmd += ['--replace']
 
-    changed_lines_only = not (opts.full or settings.GetFormatFullByDefault())
+    changed_lines_only = not opts.full
     if changed_lines_only:
         # Format two lines around each changed line so that the correct amount
         # of blank lines will be added between symbols.
@@ -6592,7 +6816,7 @@ def _RunGoogleJavaFormat(opts, paths, top_dir, upstream_commit):
             if stdout:
                 if opts.diff:
                     sys.stdout.write('Requires formatting: ' + stdout)
-                else:
+                if opts.dry_run:
                     return_value = 2
 
         return return_value
@@ -6618,7 +6842,7 @@ def _RunRustFmt(opts, rust_diff_files, top_dir, upstream_commit):
     cmd += rust_diff_files
     rustfmt_exitcode = subprocess2.call(cmd)
 
-    if opts.presubmit and rustfmt_exitcode != 0:
+    if opts.dry_run and rustfmt_exitcode != 0:
         return 2
 
     return 0
@@ -6643,7 +6867,7 @@ def _RunSwiftFormat(opts, swift_diff_files, top_dir, upstream_commit):
     cmd += swift_diff_files
     swift_format_exitcode = subprocess2.call(cmd)
 
-    if opts.presubmit and swift_format_exitcode != 0:
+    if opts.dry_run and swift_format_exitcode != 0:
         return 2
 
     return 0
@@ -6705,7 +6929,7 @@ def _RunYapf(opts, paths, top_dir, upstream_commit):
                                 shell=sys.platform.startswith('win32'))
             if opts.diff:
                 sys.stdout.write(stdout)
-            elif len(stdout) > 0:
+            if opts.dry_run and len(stdout) > 0:
                 return_value = 2
         else:
             cmd += ['-i']
@@ -6714,7 +6938,7 @@ def _RunYapf(opts, paths, top_dir, upstream_commit):
 
 
 def _RunGnFormat(opts, paths, top_dir, upstream_commit):
-    cmd = ['gn', 'format']
+    cmd = [sys.executable, os.path.join(DEPOT_TOOLS, 'gn.py'), 'format']
     if opts.dry_run or opts.diff:
         cmd.append('--dry-run')
     return_value = 0
@@ -6722,11 +6946,11 @@ def _RunGnFormat(opts, paths, top_dir, upstream_commit):
         gn_ret = subprocess2.call(cmd + [path],
                                   shell=sys.platform.startswith('win'),
                                   cwd=top_dir)
-        if opts.dry_run and gn_ret == 2:
-            return_value = 2  # Not formatted.
-        elif opts.diff and gn_ret == 2:
+        if opts.diff and gn_ret == 2:
             # TODO this should compute and print the actual diff.
             print('This change has GN build file diff for ' + path)
+        if opts.dry_run and gn_ret == 2:
+            return_value = 2  # Not formatted.
         elif gn_ret != 0:
             # For non-dry run cases (and non-2 return values for dry-run), a
             # nonzero error code indicates a failure, probably because the
@@ -6759,7 +6983,7 @@ def _RunMojomFormat(opts, paths, top_dir, upstream_commit):
     return ret
 
 
-def _FormatXml(opts, paths, top_dir, upstream_commit):
+def _RunMetricsXMLFormat(opts, paths, top_dir, upstream_commit):
     # Skip the metrics formatting from the global presubmit hook. These files
     # have a separate presubmit hook that issues an error if the files need
     # formatting, whereas the top-level presubmit script merely issues a
@@ -6770,14 +6994,11 @@ def _FormatXml(opts, paths, top_dir, upstream_commit):
 
     return_value = 0
     for path in paths:
-        xml_dir = GetMetricsDir(path)
-        if not xml_dir:
+        pretty_print_tool = metrics_xml_format.FindMetricsXMLFormatterTool(path)
+        if not pretty_print_tool:
             continue
 
-        tool_dir = os.path.join(top_dir, xml_dir.replace('/', os.path.sep))
-        pretty_print_tool = os.path.join(tool_dir, 'pretty_print.py')
         cmd = [shutil.which('vpython3'), pretty_print_tool, '--non-interactive']
-
         # If the XML file is histograms.xml or enums.xml, add the xml path
         # to the command as histograms/pretty_print.py now needs a relative
         # path argument after splitting the histograms into multiple
@@ -6786,13 +7007,10 @@ def _FormatXml(opts, paths, top_dir, upstream_commit):
         # tools/metrics/histogrmas, pretty-print should be run with an
         # additional relative path argument, like: $ python pretty_print.py
         # metadata/UMA/histograms.xml $ python pretty_print.py enums.xml
-        if xml_dir == 'tools/metrics/histograms':
-            if os.path.basename(path) not in ('histograms.xml', 'enums.xml',
-                                              'histogram_suffixes_list.xml'):
-                # Skip this XML file if it's not one of the known types.
-                continue
-            cmd.append(path.replace('/', os.path.sep))
-
+        metricsDir = metrics_xml_format.GetMetricsDir(top_dir, path)
+        histogramsDir = os.path.join(top_dir, 'tools', 'metrics', 'histograms')
+        if metricsDir == histogramsDir:
+            cmd.append(path)
         if opts.dry_run or opts.diff:
             cmd.append('--diff')
 
@@ -6804,20 +7022,41 @@ def _FormatXml(opts, paths, top_dir, upstream_commit):
     return return_value
 
 
-def MatchingFileType(file_name, extensions):
+def _RunLUCICfgFormat(opts, paths, top_dir, upstream_commit):
+    depot_tools_path = os.path.dirname(os.path.abspath(__file__))
+    lucicfg = os.path.join(depot_tools_path, 'lucicfg')
+    if sys.platform == 'win32':
+        lucicfg += '.bat'
+
+    cmd = [lucicfg, 'fmt']
+    if opts.dry_run:
+        cmd.append('--dry-run')
+    cmd.extend(paths)
+
+    ret = subprocess2.call(cmd)
+    if opts.dry_run and ret != 0:
+        return 2
+
+    return ret
+
+
+def MatchingFileType(file_name: str, extensions: list[str]) -> bool:
     """Returns True if the file name ends with one of the given extensions."""
     return bool([ext for ext in extensions if file_name.lower().endswith(ext)])
 
 
+FormatterFunction = Callable[[Any, list[str], str, str], int]
+
+
 @subcommand.usage('[files or directories to diff]')
 @metrics.collector.collect_metrics('git cl format')
-def CMDformat(parser, args):
+def CMDformat(parser: optparse.OptionParser, args: list[str]):
     """Runs auto-formatting tools (clang-format etc.) on the diff."""
     if gclient_utils.IsEnvCog():
         print(
-            'format command is not supported. Please use the "Format '
-            'Document" functionality in command palette in the Editor '
-            'instead.',
+            'format command is not supported in non-git environment. Please '
+            'use the "Format Modified Lines in All Files (git cl format)" '
+            'functionality in the command palette in the editor instead.',
             file=sys.stderr)
         return 1
     clang_exts = ['.cc', '.cpp', '.h', '.m', '.mm', '.proto']
@@ -6890,7 +7129,12 @@ def CMDformat(parser, args):
                       action='store_true',
                       help='Disable auto-formatting of .java')
 
+    parser.add_option('--lucicfg',
+                      action='store_true',
+                      help='Enables formatting of .star files.')
+
     opts, files = parser.parse_args(args)
+    opts.full = opts.full or settings.GetFormatFullByDefault()
 
     # Normalize files against the current path, so paths relative to the
     # current directory are still resolved as expected.
@@ -6906,14 +7150,14 @@ def CMDformat(parser, args):
     # branch when it was created or the last time it was rebased. This is
     # to cover the case where the user may have called "git fetch origin",
     # moving the origin branch to a newer commit, but hasn't rebased yet.
-    upstream_commit = None
-    upstream_branch = opts.upstream
+    upstream_commit: str | None = None
+    upstream_branch: str | None = opts.upstream
     if not upstream_branch:
         cl = Changelist()
         upstream_branch = cl.GetUpstreamBranch()
     if upstream_branch:
-        upstream_commit = RunGit(['merge-base', 'HEAD', upstream_branch])
-        upstream_commit = upstream_commit.strip()
+        upstream_commit = RunGit(['merge-base', 'HEAD',
+                                  upstream_branch]).strip()
 
     if not upstream_commit:
         DieWithError('Could not find base commit for this branch. '
@@ -6927,22 +7171,24 @@ def CMDformat(parser, args):
     if opts.js:
         clang_exts.extend(['.js', '.ts'])
 
-    formatters = [
+    formatters: list[tuple[list[str], FormatterFunction]] = [
         (GN_EXTS, _RunGnFormat),
-        (['.xml'], _FormatXml),
+        (['.xml'], _RunMetricsXMLFormat),
     ]
     if not opts.no_java:
-        formatters += [(['.java'], _RunGoogleJavaFormat)]
+        formatters.append((['.java'], _RunGoogleJavaFormat))
     if opts.clang_format:
-        formatters += [(clang_exts, _RunClangFormatDiff)]
+        formatters.append((clang_exts, _RunClangFormatDiff))
     if opts.use_rust_fmt:
-        formatters += [(['.rs'], _RunRustFmt)]
+        formatters.append((['.rs'], _RunRustFmt))
     if opts.use_swift_format:
-        formatters += [(['.swift'], _RunSwiftFormat)]
+        formatters.append((['.swift'], _RunSwiftFormat))
     if opts.python is not False:
-        formatters += [(['.py'], _RunYapf)]
+        formatters.append((['.py'], _RunYapf))
     if opts.mojom:
-        formatters += [(['.mojom'], _RunMojomFormat)]
+        formatters.append((['.mojom', '.test-mojom'], _RunMojomFormat))
+    if opts.lucicfg:
+        formatters.append((['.star'], _RunLUCICfgFormat))
 
     top_dir = settings.GetRoot()
     return_value = 0
@@ -6954,19 +7200,6 @@ def CMDformat(parser, args):
         return_value = return_value or ret
 
     return return_value
-
-
-def GetMetricsDir(diff_xml):
-    metrics_xml_dirs = [
-        'tools/metrics/actions',
-        'tools/metrics/histograms',
-        'tools/metrics/structured',
-        'tools/metrics/ukm',
-    ]
-    for xml_dir in metrics_xml_dirs:
-        if diff_xml.startswith(xml_dir):
-            return xml_dir
-    return None
 
 
 @subcommand.usage('<codereview url or issue id>')
