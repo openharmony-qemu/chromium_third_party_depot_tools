@@ -82,6 +82,11 @@ class AutoninjaTest(trial_dir.TestCase):
                         return_value=0) as run_ninja:
             out_dir = os.path.join('out', 'dir')
             write(os.path.join(out_dir, 'args.gn'), 'use_remoteexec=true')
+            write(os.path.join('build', 'toolchain', 'use_reclient_value.py'),
+                  """
+def use_reclient_value(output_dir):
+  return True
+""")
             write(os.path.join('buildtools', 'reclient_cfgs', 'reproxy.cfg'),
                   'RBE_v=2')
             write(os.path.join('buildtools', 'reclient', 'version.txt'), '0.0')
@@ -134,6 +139,12 @@ class AutoninjaTest(trial_dir.TestCase):
                 write(os.path.join(out_dir, 'args.gn'),
                       'use_siso=true\nuse_remoteexec=true')
                 write(
+                    os.path.join('build', 'toolchain', 'use_reclient_value.py'),
+                    """
+def use_reclient_value(output_dir):
+  return True
+""")
+                write(
                     os.path.join('buildtools', 'reclient_cfgs', 'reproxy.cfg'),
                     'instance=projects/rbe-chromium-untrusted-test/'
                     'instances/default_instance\n'
@@ -142,13 +153,14 @@ class AutoninjaTest(trial_dir.TestCase):
                       '0.0')
                 autoninja.main(['autoninja.py', '-C', out_dir])
                 siso_main.assert_called_once_with([
-                    'siso', 'ninja', '-project=', '-reapi_instance=', '-C',
-                    out_dir
+                    'siso', 'ninja', '-project=', '-reapi_instance=',
+                    '-reapi_address=', '-C', out_dir
                 ])
         self.assertEqual(len(reclient_helper_calls), 1)
-        self.assertEqual(
-            reclient_helper_calls[0][0],
-            ['siso', 'ninja', '-project=', '-reapi_instance=', '-C', out_dir])
+        self.assertEqual(reclient_helper_calls[0][0], [
+            'siso', 'ninja', '-project=', '-reapi_instance=', '-reapi_address=',
+            '-C', out_dir
+        ])
         self.assertEqual(reclient_helper_calls[0][1], 'autosiso')
 
     @mock.patch('sys.platform', 'win32')

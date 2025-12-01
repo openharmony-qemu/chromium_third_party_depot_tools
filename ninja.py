@@ -8,14 +8,14 @@ binary when run inside a gclient source tree, so users can just type
 "ninja" on the command line."""
 
 import os
-import subprocess
 import sys
 
+import caffeinate
 import gclient_paths
 import gn_helper
 
 
-def findNinjaInPath():
+def find_ninja_in_path():
     env_path = os.getenv("PATH")
     if not env_path:
         return
@@ -23,14 +23,16 @@ def findNinjaInPath():
     if sys.platform in ("win32", "cygwin"):
         exe += ".exe"
     for bin_dir in env_path.split(os.pathsep):
-        if bin_dir.rstrip(os.sep).endswith("depot_tools"):
+        bin_dir = bin_dir.rstrip(os.sep)
+        if os.path.basename(bin_dir) == "depot_tools":
             # skip depot_tools to avoid calling ninja.py infinitely.
             continue
         ninja_path = os.path.join(bin_dir, exe)
         if os.path.isfile(ninja_path):
             return ninja_path
 
-def checkOutdir(ninja_args):
+
+def check_out_dir(ninja_args):
     out_dir = "."
     tool = ""
     for i, arg in enumerate(ninja_args):
@@ -65,12 +67,13 @@ def checkOutdir(ninja_args):
                 file=sys.stderr)
             sys.exit(1)
 
+
 def fallback(ninja_args):
     # Try to find ninja in PATH.
-    ninja_path = findNinjaInPath()
+    ninja_path = find_ninja_in_path()
     if ninja_path:
-        checkOutdir(ninja_args)
-        return subprocess.call([ninja_path] + ninja_args)
+        check_out_dir(ninja_args)
+        return caffeinate.run([ninja_path] + ninja_args)
 
     print(
         "depot_tools/ninja.py: Could not find Ninja in the third_party of "
@@ -120,8 +123,8 @@ def main(args):
             "ninja" + gclient_paths.GetExeSuffix(),
         )
         if os.path.isfile(ninja_path):
-            checkOutdir(args[1:])
-            return subprocess.call([ninja_path] + args[1:])
+            check_out_dir(args[1:])
+            return caffeinate.run([ninja_path] + args[1:])
 
     return fallback(args[1:])
 

@@ -9,9 +9,10 @@ binary when run inside a gclient source tree, so users can just type
 
 import os
 import signal
-import subprocess
+import shutil
 import sys
 
+import caffeinate
 import gclient_paths
 
 
@@ -38,10 +39,27 @@ def checkOutdir(args):
         sys.exit(1)
 
 
+def _is_google_corp_machine():
+    """This assumes that corp machine has gcert binary in known location."""
+    return shutil.which("gcert") is not None
+
+
 def main(args):
-    # Propagate signals to siso process so that it can run cleanup steps.
-    # Siso will be terminated immediately after the second Ctrl-C.
-    signal.signal(signal.SIGINT, lambda signum, frame: None)
+    # Do not raise KeyboardInterrupt on SIGINT so as to give siso time to run
+    # cleanup tasks. Siso will be terminated immediately after the second
+    # Ctrl-C.
+    original_sigint_handler = signal.getsignal(signal.SIGINT)
+
+    def _ignore(signum, frame):
+        try:
+            # Call the original signal handler.
+            original_sigint_handler(signum, frame)
+        except KeyboardInterrupt:
+            # Do not reraise KeyboardInterrupt so as to not kill siso too early.
+            pass
+
+    signal.signal(signal.SIGINT, _ignore)
+
     if not sys.platform.startswith('win'):
         signal.signal(signal.SIGTERM, lambda signum, frame: None)
 
@@ -103,6 +121,26 @@ def main(args):
             for line in f.readlines():
                 k, v = line.rstrip().split('=', 1)
                 env[k] = v
+        backend_config_dir = os.path.join(base_path, 'build', 'config', 'siso',
+                                          'backend_config')
+        if os.path.exists(backend_config_dir) and not os.path.exists(
+                os.path.join(backend_config_dir, 'backend.star')):
+            if _is_google_corp_machine():
+                print(
+                    'build/config/siso/backend_config/backend.star does not '
+                    'exist.\n'
+                    'backend.star is configured by gclient hook '
+                    'build/config/siso/configure_siso.py.\n'
+                    'Make sure `rbe_instance` gclient custom vars is correct.\n'
+                    'Did you run `gclient runhooks` ?',
+                    file=sys.stderr)
+            else:
+                print(
+                    'build/config/siso/backend_config/backend.star does not '
+                    'exist.\n'
+                    'See build/config/siso/backend_config/README.md',
+                    file=sys.stderr)
+            return 1
         siso_paths = [
             siso_override_path,
             os.path.join(base_path, 'third_party', 'siso', 'cipd',
@@ -113,14 +151,14 @@ def main(args):
         for siso_path in siso_paths:
             if siso_path and os.path.isfile(siso_path):
                 checkOutdir(args[1:])
-                return subprocess.call([siso_path] + args[1:], env=env)
+                return caffeinate.run([siso_path] + args[1:], env=env)
         print(
             'depot_tools/siso.py: Could not find siso in third_party/siso '
             'of the current project. Did you run gclient sync?',
             file=sys.stderr)
         return 1
     if siso_override_path:
-        return subprocess.call([siso_override_path] + args[1:])
+        return caffeinate.run([siso_override_path] + args[1:])
 
     print(
         'depot_tools/siso.py: Could not find .sisoenv under build/config/siso '

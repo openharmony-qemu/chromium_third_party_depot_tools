@@ -17,6 +17,7 @@ import platform
 import queue
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -636,6 +637,22 @@ def CheckCallAndFilter(args,
             pipe_reader, pipe_writer = os.openpty()
         else:
             pipe_reader, pipe_writer = os.pipe()
+
+        # subprocess2 will use pseudoterminals (ptys) for the child process,
+        # and ptys do not support a terminal size directly, so if we want
+        # a hook to be able to customize what it does based on the terminal
+        # size, we need to explicitly pass the size information down to
+        # the subprocess. Setting COLUMNS and LINES explicitly in the
+        # environment will cause those values to be picked up by
+        # `shutil.get_terminal_size()` in the subprocess (and of course
+        # anything that checks for the env vars direcstly as well).
+        if 'env' not in kwargs:
+            kwargs['env'] = os.environ.copy()
+        if 'COLUMNS' not in kwargs['env'] or 'LINES' not in kwargs['env']:
+            size = shutil.get_terminal_size()
+            if size.columns and size.lines:
+                kwargs['env']['COLUMNS'] = str(size.columns)
+                kwargs['env']['LINES'] = str(size.lines)
 
         kid = subprocess2.Popen(args,
                                 bufsize=0,
@@ -1401,3 +1418,42 @@ def merge_conditions(*conditions):
             continue
         condition = f'({condition}) and ({current_condition})'
     return condition
+
+
+def exponential_backoff_retry(fn,
+                              excs=(Exception, ),
+                              name=None,
+                              count=10,
+                              sleep_time=0.25,
+                              printerr=None):
+    """Executes |fn| up to |count| times, backing off exponentially.
+
+    Args:
+        fn (callable): The function to execute. If this raises a handled
+            exception, the function will retry with exponential backoff.
+        excs (tuple): A tuple of Exception types to handle. If one of these is
+            raised by |fn|, a retry will be attempted. If |fn| raises an
+            Exception that is not in this list, it will immediately pass
+            through. If |excs| is empty, the Exception base class will be used.
+        name (str): Optional operation name to print in the retry string.
+        count (int): The number of times to try before allowing the exception
+            to pass through.
+        sleep_time (float): The initial number of seconds to sleep in between
+            retries. This will be doubled each retry.
+        printerr (callable): Function that will be called with the error string
+            upon failures. If None, |logging.warning| will be used.
+
+    Returns: The return value of the successful fn.
+    """
+    printerr = printerr or logging.warning
+    for i in range(count):
+        try:
+            return fn()
+        except excs as e:
+            if (i + 1) >= count:
+                raise
+
+            printerr('Retrying %s in %.2f second(s) (%d / %d attempts): %s' %
+                     ((name or 'operation'), sleep_time, (i + 1), count, e))
+            time.sleep(sleep_time)
+            sleep_time *= 2

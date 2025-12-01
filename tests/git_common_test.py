@@ -751,6 +751,34 @@ class GitMutableStructuredTest(git_test_utils.GitRepoReadWriteTestBase,
             ('root_A', 'root_X'),
         ])
 
+    def testGetHashes(self):
+        hashes = self.repo.run(self.gc.get_hashes)
+        for branch, branch_hash in hashes.items():
+            self.assertEqual(self.repo.run(self.gc.hash_one, branch),
+                             branch_hash)
+
+    def testGetDownstreamBranches(self):
+        downstream_branches = self.repo.run(self.gc.get_downstream_branches)
+        self.assertEqual(
+            downstream_branches, {
+                'root_A': ['branch_G'],
+                'branch_G': ['branch_K'],
+                'branch_K': ['branch_L'],
+                'root_X': ['branch_Z', 'root_A'],
+            })
+
+    def testGetDivergedBranches(self):
+        # root_X and root_A don't actually have a common base commit due to the
+        # test repo's structure, which causes get_diverged_branches to throw
+        # an error.
+        self.repo.git('branch', '--unset-upstream', 'root_A')
+
+        # K is setup with G as it's root, but it's branched at B.
+        # L is setup with K as it's root, but it's branched at J.
+        diverged_branches = self.repo.run(self.gc.get_diverged_branches)
+        self.assertEqual(diverged_branches, ['branch_K', 'branch_L'])
+
+
     def testIsGitTreeDirty(self):
         retval = []
         self.repo.capture_stdio(lambda: retval.append(
@@ -1317,6 +1345,42 @@ class RunWithStderr(GitCommonTestBase):
         run_mock.reset_mock()
         self.runGitCheckout(ex, retry_lock=False)
         self.assertEqual(run_mock.call_count, 1)  # 1 + 0 (retry)
+
+
+class ExtractGitPathFromGitBatTest(GitCommonTestBase):
+
+    def test_unexpected_format(self):
+        git_bat = os.path.join(DEPOT_TOOLS_ROOT, 'tests',
+                               'git_common_test.inputs',
+                               'testGitBatUnexpectedFormat', 'git.bat')
+        actual = self.gc._extract_git_path_from_git_bat(git_bat)
+        self.assertEqual(actual, git_bat)
+
+    def test_non_exe(self):
+        git_bat = os.path.join(DEPOT_TOOLS_ROOT, 'tests',
+                               'git_common_test.inputs', 'testGitBatNonExe',
+                               'git.bat')
+        actual = self.gc._extract_git_path_from_git_bat(git_bat)
+        self.assertEqual(actual, git_bat)
+
+    def test_absolute_path(self):
+        git_bat = os.path.join(DEPOT_TOOLS_ROOT, 'tests',
+                               'git_common_test.inputs',
+                               'testGitBatAbsolutePath', 'git.bat')
+        actual = self.gc._extract_git_path_from_git_bat(git_bat)
+        expected = 'C:\\Absolute\\Path\\To\\Git\\cmd\\git.exe'
+        self.assertEqual(actual, expected)
+
+    def test_relative_path(self):
+        git_bat = os.path.join(DEPOT_TOOLS_ROOT, 'tests',
+                               'git_common_test.inputs',
+                               'testGitBatRelativePath', 'git.bat')
+        actual = self.gc._extract_git_path_from_git_bat(git_bat)
+        expected = os.path.join(DEPOT_TOOLS_ROOT, 'tests',
+                                'git_common_test.inputs',
+                                'testGitBatRelativePath',
+                                'Relative\\Path\\To\\Git\\cmd\\git.exe')
+        self.assertEqual(actual, expected)
 
 
 if __name__ == '__main__':

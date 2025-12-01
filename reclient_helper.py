@@ -264,13 +264,8 @@ def set_reproxy_path_flags(out_dir, make_dirs=True):
 
 
 def set_racing_defaults():
-    if sys.platform == 'linux':
-        os.environ.setdefault("RBE_local_resource_fraction", "0.4")
-        os.environ.setdefault("RBE_racing_bias", "0.7")
-    else:
-        # TODO(b/352463976): tune this on non-Linux platform too.
-        os.environ.setdefault("RBE_local_resource_fraction", "0.2")
-        os.environ.setdefault("RBE_racing_bias", "0.95")
+    os.environ.setdefault("RBE_local_resource_fraction", "0.2")
+    os.environ.setdefault("RBE_racing_bias", "0.95")
 
 
 def set_mac_defaults():
@@ -317,7 +312,7 @@ def reclient_setup_docs_url():
 
 
 @contextlib.contextmanager
-def build_context(argv, tool, should_collect_logs):
+def build_context(argv, tool, should_collect_logs=False):
     # If use_remoteexec is set, but the reclient binaries or configs don't
     # exist, display an error message and stop.  Otherwise, the build will
     # attempt to run with rewrapper wrapping actions, but will fail with
