@@ -1000,8 +1000,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
         if self.git_dependencies_state == gclient_eval.SUBMODULES:
             deps.update(self.ParseGitSubmodules())
 
-        if not self.get_vars().get('source_tarball', False) and \
-           self.git_dependencies_state != gclient_eval.DEPS:
+        if self.git_dependencies_state != gclient_eval.DEPS:
             # Git submodules are used - get their state.
             self._known_dependency_diff = self.CreateSCM().GetSubmoduleDiff()
             self._dependency_index_state = self.CreateSCM(
@@ -1219,7 +1218,7 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
             self.FuzzyMatchUrl(revision_overrides), None)
         if not revision_override and not self.managed:
             revision_override = 'unmanaged'
-        if not self.get_vars().get('source_tarball', False) and run_scm and self.url:
+        if run_scm and self.url:
             # Create a shallow copy to mutate revision.
             options = copy.copy(options)
             options.revision = revision_override
