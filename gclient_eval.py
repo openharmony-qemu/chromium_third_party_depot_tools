@@ -6,6 +6,7 @@ import ast
 import collections
 from io import StringIO
 import logging
+import string
 import sys
 import tokenize
 
@@ -41,6 +42,18 @@ class ConstantString(object):
 
     def __hash__(self):
         return self.value.__hash__()
+
+
+class _SafeFormatter(string.Formatter):
+    def get_field(self, field_name, args, kwargs):
+        if '.' in field_name or '[' in field_name:
+            raise ValueError(
+                'Attribute and item access are not allowed: %s' % field_name)
+        return super(_SafeFormatter, self).get_field(field_name, args, kwargs)
+
+
+def _ExpandVars(fmt_string, vars_dict):
+        return _SafeFormatter().format(fmt_string, **vars_dict)
 
 
 class _NodeDict(collections.abc.MutableMapping):
@@ -320,7 +333,7 @@ def _gclient_eval(node_or_string, filename='<unknown>', vars_dict=None):
             if vars_dict is None:
                 return node.s
             try:
-                return node.s.format(**vars_dict)
+                return _ExpandVars(node.s, vars_dict)
             except KeyError as e:
                 raise KeyError(
                     '%s was used as a variable, but was not declared in the vars dict '
@@ -483,7 +496,7 @@ def _StandardizeDeps(deps_dict, vars_dict):
     """
     new_deps_dict = {}
     for dep_name, dep_info in deps_dict.items():
-        dep_name = dep_name.format(**vars_dict)
+        dep_name = _ExpandVars(dep_name, vars_dict)
         if not isinstance(dep_info, collections.abc.Mapping):
             dep_info = {'url': dep_info}
         dep_info.setdefault('dep_type', 'git')
